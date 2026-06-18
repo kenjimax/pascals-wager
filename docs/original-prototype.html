@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pascal's Wager — Personalized Decision Model</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #ffffff;
+    --bg-secondary: #f5f5f2;
+    --bg-tertiary: #efefeb;
+    --bg-info: #e6f1fb;
+    --text: #1a1a18;
+    --text-secondary: #5f5e5a;
+    --text-tertiary: #888780;
+    --text-success: #3b6d11;
+    --text-info: #0c447c;
+    --border: rgba(0,0,0,0.12);
+    --border-med: rgba(0,0,0,0.22);
+    --border-info: #378add;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a;
+      --bg-secondary: #282826;
+      --bg-tertiary: #323230;
+      --bg-info: #042c53;
+      --text: #f0efea;
+      --text-secondary: #a0a09a;
+      --text-tertiary: #6a6a64;
+      --text-success: #97c459;
+      --text-info: #85b7eb;
+      --border: rgba(255,255,255,0.1);
+      --border-med: rgba(255,255,255,0.2);
+      --border-info: #378add;
+    }
+  }
+
+  body {
+    font-family: var(--font);
+    background: var(--bg-tertiary);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 2rem 1rem;
+  }
+
+  .container {
+    max-width: 680px;
+    margin: 0 auto;
+    background: var(--bg);
+    border-radius: var(--radius-lg);
+    border: 0.5px solid var(--border);
+    padding: 2rem;
+  }
+
+  h1 { font-size: 20px; font-weight: 500; color: var(--text); margin-bottom: 0.25rem; }
+
+  .app-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 2rem; line-height: 1.6; }
+
+  .progress { display: flex; gap: 6px; margin-bottom: 2rem; align-items: center; }
+  .progress-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-med); transition: background 0.2s; }
+  .progress-dot.done { background: #185fa5; }
+  .progress-dot.active { background: #378add; }
+  .progress-label { font-size: 12px; color: var(--text-tertiary); margin-left: 6px; }
+
+  .step { display: none; }
+  .step.active { display: block; }
+
+  .q { font-size: 17px; font-weight: 500; color: var(--text); margin-bottom: 0.5rem; line-height: 1.5; }
+  .sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 1.5rem; line-height: 1.6; }
+
+  .religion-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+    gap: 10px;
+    margin-bottom: 1.5rem;
+  }
+
+  .rel-card {
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    cursor: pointer;
+    background: var(--bg);
+    user-select: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .rel-card:hover { border-color: var(--border-med); }
+  .rel-card.active { border: 2px solid var(--border-info); background: var(--bg-info); }
+  .rel-card .rname { font-size: 13px; font-weight: 500; color: var(--text); }
+  .rel-card.active .rname { color: var(--text-info); }
+  .rel-card .rsub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+  .custom-input { display: flex; gap: 8px; margin-bottom: 1rem; }
+
+  input[type=text] {
+    flex: 1;
+    font-size: 13px;
+    font-family: var(--font);
+    padding: 0 12px;
+    height: 36px;
+    border: 0.5px solid var(--border-med);
+    border-radius: var(--radius-md);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+  }
+  input[type=text]:focus { border-color: var(--border-info); }
+
+  .custom-tags { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1rem; }
+  .tag {
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: 4px 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .tag button { background: none; border: none; cursor: pointer; color: var(--text-tertiary); font-size: 15px; line-height: 1; padding: 0; }
+
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 0.75rem; }
+  .row label { font-size: 13px; color: var(--text-secondary); min-width: 200px; }
+  input[type=range] { flex: 1; accent-color: #378add; cursor: pointer; }
+  .row .val { font-size: 13px; font-weight: 500; min-width: 70px; text-align: right; color: var(--text); }
+
+  .prob-remaining {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 1rem;
+    padding: 8px 12px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+  }
+  .prob-remaining.over { color: #a32d2d; background: #fcebeb; }
+
+  .payoff-card {
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    background: var(--bg);
+  }
+  .payoff-card-title { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 0.75rem; }
+
+  .payoff-row { display: flex; align-items: center; gap: 12px; margin-bottom: 0.6rem; }
+  .payoff-row label { font-size: 12px; color: var(--text-secondary); min-width: 230px; }
+  .payoff-row .val { font-size: 12px; font-weight: 500; min-width: 80px; text-align: right; color: var(--text); }
+
+  .btn-row { display: flex; gap: 10px; margin-top: 1.5rem; flex-wrap: wrap; }
+
+  button { font-family: var(--font); cursor: pointer; transition: background 0.15s; }
+
+  .btn-primary {
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: var(--radius-md);
+    border: 0.5px solid var(--border-med);
+    background: var(--bg-secondary);
+    color: var(--text);
+  }
+  .btn-primary:hover { background: var(--bg-tertiary); }
+
+  .btn-back {
+    padding: 9px 16px;
+    font-size: 13px;
+    border-radius: var(--radius-md);
+    border: 0.5px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .btn-back:hover { background: var(--bg-secondary); }
+
+  .verdict {
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    background: var(--bg);
+    margin-bottom: 1.5rem;
+  }
+  .verdict .vl { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .verdict .vv { font-size: 22px; font-weight: 500; color: var(--text); margin-bottom: 8px; }
+  .verdict .vr { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 1.5rem; }
+  .metric { background: var(--bg-secondary); border-radius: var(--radius-md); padding: 12px 14px; }
+  .metric .ml { font-size: 11px; color: var(--text-secondary); margin-bottom: 4px; }
+  .metric .mv { font-size: 16px; font-weight: 500; }
+
+  .matrix-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+  table { border-collapse: collapse; font-size: 12px; min-width: 400px; width: 100%; }
+  th { font-size: 11px; font-weight: 500; color: var(--text-secondary); padding: 6px 8px; border-bottom: 0.5px solid var(--border); text-align: left; white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 0.5px solid var(--border); color: var(--text); white-space: nowrap; }
+  tr.best-row td:first-child { color: var(--text-success); font-weight: 500; }
+
+  .pos { color: #27500a; }
+  .neg { color: #791f1f; }
+  @media (prefers-color-scheme: dark) {
+    .pos { color: #97c459; }
+    .neg { color: #f09595; }
+  }
+
+  .note { font-size: 12px; color: var(--text-tertiary); font-style: italic; margin-top: 1rem; line-height: 1.6; }
+
+  .restart-btn { font-size: 13px; color: var(--text-secondary); background: none; border: none; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 1rem; }
+
+  .error { color: #a32d2d; font-size: 13px; margin-top: 0.5rem; display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Pascal's Wager</h1>
+  <p class="app-sub">A personalized decision-theoretic model based on your subjective credences and payoff judgments.</p>
+
+  <div class="progress" id="progress"></div>
+
+  <div class="step active" id="step-1">
+    <p class="q">Which worldviews are live options for you?</p>
+    <p class="sub">Select every option you consider genuinely possible — including "no religion" if atheism or secular life is a live option for you. You can select any combination. All selected options will be treated equally in the model.</p>
+    <div class="religion-grid" id="rel-select-grid"></div>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Don't see yours? Add it:</p>
+    <div class="custom-input">
+      <input type="text" id="custom-rel-input" placeholder="e.g. Zoroastrianism, Secular humanism">
+      <button class="btn-primary" onclick="addCustomRel()">Add</button>
+    </div>
+    <div class="custom-tags" id="custom-tags"></div>
+    <p class="error" id="err-1">Please select at least two options to compare.</p>
+    <div class="btn-row"><button class="btn-primary" onclick="goStep(2)">Next →</button></div>
+  </div>
+
+  <div class="step" id="step-2">
+    <p class="q">How probable is each worldview?</p>
+    <p class="sub">Set your subjective credence — your personal degree of belief — that each worldview is correct. Probabilities must sum to 100%; any remainder is unassigned.</p>
+    <div id="prob-sliders"></div>
+    <div class="prob-remaining" id="prob-remaining"></div>
+    <div class="btn-row">
+      <button class="btn-back" onclick="goStep(1)">← Back</button>
+      <button class="btn-primary" onclick="goStep(3)">Next →</button>
+    </div>
+  </div>
+
+  <div class="step" id="step-3">
+    <p class="q">What happens to true followers?</p>
+    <p class="sub">For each worldview, set the payoff for someone who sincerely lives according to it — assuming that worldview turns out to be correct. Include any reward and the cost or burden of that way of life.</p>
+    <div id="self-payoffs"></div>
+    <div class="btn-row">
+      <button class="btn-back" onclick="goStep(2)">← Back</button>
+      <button class="btn-primary" onclick="goStep(4)">Next →</button>
+    </div>
+  </div>
+
+  <div class="step" id="step-4">
+    <p class="q">What happens to followers of other worldviews?</p>
+    <p class="sub">For each worldview, set the outcome for people living according to a <em>different</em> worldview, if this one turns out to be correct. Negative values = penalty; positive = reward or leniency.</p>
+    <div id="cross-payoffs"></div>
+    <div class="btn-row">
+      <button class="btn-back" onclick="goStep(3)">← Back</button>
+      <button class="btn-primary" onclick="goStep(5)">Calculate my wager →</button>
+    </div>
+  </div>
+
+  <div class="step" id="step-5">
+    <p class="q">Your personalized Pascal's Wager</p>
+    <p class="sub">Based on your credences and payoff judgments, here is what decision theory recommends as practically rational for you.</p>
+    <div class="verdict">
+      <div class="vl">Optimal action</div>
+      <div class="vv" id="res-action">—</div>
+      <div class="vr" id="res-reason"></div>
+    </div>
+    <div class="metrics" id="res-metrics"></div>
+    <div class="matrix-wrap"><table id="res-table"><thead></thead><tbody></tbody></table></div>
+    <p class="note">Expected utility = sum of (probability × payoff) across all states of the world. The optimal action is the one with the highest expected utility given your inputs.</p>
+    <div class="btn-row">
+      <button class="btn-back" onclick="goStep(4)">← Adjust answers</button>
+      <button class="btn-primary" onclick="window.print()">Print results</button>
+    </div>
+    <div><button class="restart-btn" onclick="restart()">Start over</button></div>
+  </div>
+</div>
+
+<script>
+const PRESET_OPTIONS = [
+  { id: 'christian', name: 'Christianity',  sub: 'Abrahamic' },
+  { id: 'islam',     name: 'Islam',         sub: 'Abrahamic' },
+  { id: 'judaism',   name: 'Judaism',       sub: 'Abrahamic' },
+  { id: 'hindu',     name: 'Hinduism',      sub: 'Dharmic'   },
+  { id: 'buddhism',  name: 'Buddhism',      sub: 'Dharmic'   },
+  { id: 'deism',     name: 'Deism',         sub: 'Generic theism' },
+  { id: 'noreligion',name: 'No religion',   sub: 'Secular / atheist' },
+];
+
+let selected = new Set();
+let customOpts = [];
+let probs = {};
+let selfPayoffs = {};
+let crossPayoffs = {};
+
+function allOptions() {
+  const presets = PRESET_OPTIONS.filter(r => selected.has(r.id));
+  const customs = customOpts.map(name => ({
+    id: 'custom_' + name.toLowerCase().replace(/\s+/g, '_'),
+    name,
+    sub: 'Custom'
+  }));
+  return [...presets, ...customs];
+}
+
+function fmt(v) {
+  const n = Math.round(v);
+  return (n > 0 ? '+' : '') + n.toLocaleString();
+}
+
+function updateProgress(step) {
+  const cont = document.getElementById('progress');
+  cont.innerHTML = '';
+  const labels = ['Worldviews', 'Credences', 'Own payoffs', 'Cross payoffs', 'Results'];
+  for (let i = 1; i <= 5; i++) {
+    const d = document.createElement('div');
+    d.className = 'progress-dot' + (i < step ? ' done' : i === step ? ' active' : '');
+    cont.appendChild(d);
+  }
+  const lbl = document.createElement('span');
+  lbl.className = 'progress-label';
+  lbl.textContent = 'Step ' + step + ' of 5 — ' + labels[step - 1];
+  cont.appendChild(lbl);
+}
+
+function goStep(n) {
+  if (n === 2 && allOptions().length < 2) {
+    document.getElementById('err-1').style.display = 'block';
+    return;
+  }
+  document.getElementById('err-1').style.display = 'none';
+  if (n === 2) buildProbSliders();
+  if (n === 3) buildSelfPayoffs();
+  if (n === 4) buildCrossPayoffs();
+  if (n === 5) { buildCrossPayoffs(); setTimeout(computeResults, 50); }
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + n).classList.add('active');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  updateProgress(n);
+}
+
+function renderSelectGrid() {
+  const grid = document.getElementById('rel-select-grid');
+  grid.innerHTML = '';
+  PRESET_OPTIONS.forEach(r => {
+    const d = document.createElement('div');
+    d.className = 'rel-card' + (selected.has(r.id) ? ' active' : '');
+    d.innerHTML = '<div class="rname">' + r.name + '</div><div class="rsub">' + r.sub + '</div>';
+    d.onclick = () => {
+      if (selected.has(r.id)) selected.delete(r.id);
+      else selected.add(r.id);
+      renderSelectGrid();
+    };
+    grid.appendChild(d);
+  });
+}
+
+function addCustomRel() {
+  const inp = document.getElementById('custom-rel-input');
+  const name = inp.value.trim();
+  if (!name || customOpts.includes(name)) { inp.value = ''; return; }
+  customOpts.push(name);
+  inp.value = '';
+  renderCustomTags();
+}
+
+document.getElementById('custom-rel-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addCustomRel();
+});
+
+function renderCustomTags() {
+  const cont = document.getElementById('custom-tags');
+  cont.innerHTML = '';
+  customOpts.forEach(name => {
+    const t = document.createElement('div');
+    t.className = 'tag';
+    t.innerHTML = name + ' <button onclick="removeCustom(\'' + name + '\')" aria-label="Remove ' + name + '">×</button>';
+    cont.appendChild(t);
+  });
+}
+
+function removeCustom(name) {
+  customOpts = customOpts.filter(r => r !== name);
+  renderCustomTags();
+}
+
+function buildProbSliders() {
+  const opts = allOptions();
+  const cont = document.getElementById('prob-sliders');
+  cont.innerHTML = '';
+  const defaultP = Math.floor(100 / opts.length);
+  opts.forEach(r => {
+    if (probs[r.id] === undefined) probs[r.id] = defaultP;
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML =
+      '<label>' + r.name + '</label>' +
+      '<input type="range" min="0" max="100" step="1" value="' + probs[r.id] + '" id="prob-' + r.id + '">' +
+      '<span class="val" id="probv-' + r.id + '">' + probs[r.id] + '%</span>';
+    cont.appendChild(row);
+    document.getElementById('prob-' + r.id).addEventListener('input', e => {
+      probs[r.id] = parseInt(e.target.value);
+      document.getElementById('probv-' + r.id).textContent = probs[r.id] + '%';
+      updateProbRemaining();
+    });
+  });
+  updateProbRemaining();
+}
+
+function updateProbRemaining() {
+  const total = allOptions().reduce((s, r) => s + (probs[r.id] || 0), 0);
+  const rem = 100 - total;
+  const el = document.getElementById('prob-remaining');
+  if (rem < 0) {
+    el.className = 'prob-remaining over';
+    el.textContent = 'Over by ' + Math.abs(rem) + '% — total exceeds 100%. Please reduce some values.';
+  } else if (rem > 0) {
+    el.className = 'prob-remaining';
+    el.textContent = rem + '% unassigned — consider distributing all 100% across your options.';
+  } else {
+    el.className = 'prob-remaining';
+    el.textContent = 'Probabilities sum to exactly 100%. ';
+  }
+}
+
+function selfPayoffDefaults(id) {
+  if (id === 'noreligion') return { reward: 500, cost: 0 };
+  return { reward: 5000, cost: 100 };
+}
+
+function selfPayoffLabels(id) {
+  if (id === 'noreligion') return { reward: 'Benefit of secular life (freedom, coherence, etc.)', cost: 'Cost or burden of secular life' };
+  return { reward: 'Reward (salvation / liberation / merit)', cost: 'Cost of sincere practice' };
+}
+
+function buildSelfPayoffs() {
+  const opts = allOptions();
+  const cont = document.getElementById('self-payoffs');
+  cont.innerHTML = '';
+  opts.forEach(r => {
+    if (!selfPayoffs[r.id]) selfPayoffs[r.id] = selfPayoffDefaults(r.id);
+    const labels = selfPayoffLabels(r.id);
+    const s = selfPayoffs[r.id];
+    const card = document.createElement('div');
+    card.className = 'payoff-card';
+    card.innerHTML =
+      '<p class="payoff-card-title">If ' + r.name + ' is correct — outcome for someone living according to ' + r.name + '</p>' +
+      '<div class="payoff-row">' +
+        '<label>' + labels.reward + '</label>' +
+        '<input type="range" min="0" max="100000" step="500" value="' + s.reward + '" id="sp-hv-' + r.id + '">' +
+        '<span class="val" id="sp-hvv-' + r.id + '">+' + s.reward.toLocaleString() + '</span>' +
+      '</div>' +
+      '<div class="payoff-row">' +
+        '<label>' + labels.cost + '</label>' +
+        '<input type="range" min="0" max="10000" step="100" value="' + s.cost + '" id="sp-co-' + r.id + '">' +
+        '<span class="val" id="sp-cov-' + r.id + '">−' + s.cost + '</span>' +
+      '</div>';
+    cont.appendChild(card);
+    document.getElementById('sp-hv-' + r.id).addEventListener('input', e => {
+      selfPayoffs[r.id].reward = parseFloat(e.target.value);
+      document.getElementById('sp-hvv-' + r.id).textContent = '+' + Math.round(selfPayoffs[r.id].reward).toLocaleString();
+    });
+    document.getElementById('sp-co-' + r.id).addEventListener('input', e => {
+      selfPayoffs[r.id].cost = parseFloat(e.target.value);
+      document.getElementById('sp-cov-' + r.id).textContent = '−' + Math.round(selfPayoffs[r.id].cost);
+    });
+  });
+}
+
+function crossPayoffDefault(trueId, otherId) {
+  if (trueId === 'noreligion') return 0;
+  if (otherId === 'noreligion') return -3000;
+  return -3000;
+}
+
+function buildCrossPayoffs() {
+  const opts = allOptions();
+  const cont = document.getElementById('cross-payoffs');
+  cont.innerHTML = '';
+  opts.forEach(trueOpt => {
+    if (!crossPayoffs[trueOpt.id]) crossPayoffs[trueOpt.id] = {};
+    const others = opts.filter(r => r.id !== trueOpt.id);
+    if (others.length === 0) return;
+    const card = document.createElement('div');
+    card.className = 'payoff-card';
+    let inner = '<p class="payoff-card-title">If ' + trueOpt.name + ' is correct — outcomes for people living otherwise</p>';
+    others.forEach(otherOpt => {
+      if (crossPayoffs[trueOpt.id][otherOpt.id] === undefined)
+        crossPayoffs[trueOpt.id][otherOpt.id] = crossPayoffDefault(trueOpt.id, otherOpt.id);
+      const cid = 'cp-' + trueOpt.id + '--' + otherOpt.id;
+      inner +=
+        '<div class="payoff-row">' +
+          '<label>Outcome for someone following ' + otherOpt.name + '</label>' +
+          '<input type="range" min="-100000" max="100000" step="500" value="' + crossPayoffs[trueOpt.id][otherOpt.id] + '" id="' + cid + '">' +
+          '<span class="val" id="' + cid + '-v">' + fmt(crossPayoffs[trueOpt.id][otherOpt.id]) + '</span>' +
+        '</div>';
+    });
+    card.innerHTML = inner;
+    cont.appendChild(card);
+    others.forEach(otherOpt => {
+      const cid = 'cp-' + trueOpt.id + '--' + otherOpt.id;
+      document.getElementById(cid).addEventListener('input', e => {
+        crossPayoffs[trueOpt.id][otherOpt.id] = parseFloat(e.target.value);
+        document.getElementById(cid + '-v').textContent = fmt(crossPayoffs[trueOpt.id][otherOpt.id]);
+      });
+    });
+  });
+  if (cont.innerHTML === '') {
+    cont.innerHTML = '<p style="font-size:13px;color:var(--text-secondary);">Only one option selected — no cross-worldview outcomes to configure.</p>';
+  }
+}
+
+function computeResults() {
+  const opts = allOptions();
+
+  const thead = document.querySelector('#res-table thead');
+  const tbody = document.querySelector('#res-table tbody');
+
+  let thHTML = '<tr><th>Action \\ State</th>';
+  opts.forEach(r => {
+    thHTML += '<th>' + r.name + '<br><span style="font-weight:400">' + (probs[r.id] || 0) + '%</span></th>';
+  });
+  thHTML += '<th>EU</th></tr>';
+  thead.innerHTML = thHTML;
+
+  let bestEU = -Infinity, bestLabel = '';
+  const eus = {};
+  let tbHTML = '';
+
+  opts.forEach(action => {
+    let eu = 0;
+    let rowCells = '';
+
+    opts.forEach(trueOpt => {
+      const p = (probs[trueOpt.id] || 0) / 100;
+      let payoff;
+      if (action.id === trueOpt.id) {
+        const s = selfPayoffs[trueOpt.id] || selfPayoffDefaults(trueOpt.id);
+        payoff = s.reward - s.cost;
+      } else {
+        payoff = (crossPayoffs[trueOpt.id] && crossPayoffs[trueOpt.id][action.id] !== undefined)
+          ? crossPayoffs[trueOpt.id][action.id]
+          : crossPayoffDefault(trueOpt.id, action.id);
+      }
+      eu += p * payoff;
+      rowCells += '<td class="' + (payoff >= 0 ? 'pos' : 'neg') + '">' + fmt(payoff) + '</td>';
+    });
+
+    eus[action.id] = eu;
+    if (eu > bestEU) { bestEU = eu; bestLabel = action.name; }
+    tbHTML += '<tr data-id="' + action.id + '"><td>' + action.name + '</td>' + rowCells + '<td class="' + (eu >= 0 ? 'pos' : 'neg') + '">' + fmt(eu) + '</td></tr>';
+  });
+
+  tbody.innerHTML = tbHTML;
+  document.querySelectorAll('#res-table tbody tr').forEach(tr => {
+    if (eus[tr.getAttribute('data-id')] === bestEU) tr.classList.add('best-row');
+  });
+
+  document.getElementById('res-metrics').innerHTML = opts.map(a =>
+    '<div class="metric"><div class="ml">' + a.name + '</div><div class="mv ' + (eus[a.id] >= 0 ? 'pos' : 'neg') + '">' + fmt(eus[a.id]) + '</div></div>'
+  ).join('');
+
+  document.getElementById('res-action').textContent = bestLabel;
+  const sorted = opts.slice().sort((a, b) => eus[b.id] - eus[a.id]);
+  const second = sorted[1];
+  const margin = bestEU - eus[second.id];
+  document.getElementById('res-reason').textContent =
+    'Given your credences and payoff judgments, "' + bestLabel + '" maximizes expected utility at ' + fmt(bestEU) + ' utils. ' +
+    'The next best option is "' + second.name + '" at ' + fmt(eus[second.id]) + ' utils — a margin of ' + fmt(margin) + ' utils.';
+}
+
+function restart() {
+  selected = new Set();
+  customOpts = [];
+  probs = {};
+  selfPayoffs = {};
+  crossPayoffs = {};
+  renderSelectGrid();
+  document.getElementById('custom-tags').innerHTML = '';
+  goStep(1);
+}
+
+renderSelectGrid();
+updateProgress(1);
+</script>
+</body>
+</html>
