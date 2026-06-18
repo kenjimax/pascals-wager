@@ -3,7 +3,8 @@ import {
   FINITE, POS_INF, NEG_INF, INDETERMINATE,
   erAdd, erMultiplyByProb, erCompare, erSubtract, erEqual, erToString,
   erGte, erGt, erMax, erMin,
-  normalizeProbabilities,
+  normalizeProbabilities, normalizeProbabilitiesResult,
+  isValidExtendedRealTag,
   computeEU, rankByEU, lexicographicTiebreak,
   computeDominance, computeMaximin, computeMinimaxRegret,
   computeFullDecision,
@@ -71,6 +72,30 @@ describe("Extended Real Arithmetic", () => {
       expect(result.tag).toBe("finite");
       expect(result.value).toBe(Number.MAX_SAFE_INTEGER);
     });
+
+    it("clamps AND flags overflow (spec 4.1)", () => {
+      const result = erAdd(FINITE(Number.MAX_SAFE_INTEGER), FINITE(1));
+      expect(result.tag).toBe("finite");
+      expect(result.value).toBe(Number.MAX_SAFE_INTEGER);
+      expect(result.overflow).toBe(true);
+    });
+
+    it("negative overflow is clamped and flagged", () => {
+      const result = erAdd(FINITE(-Number.MAX_SAFE_INTEGER), FINITE(-1));
+      expect(result.value).toBe(-Number.MAX_SAFE_INTEGER);
+      expect(result.overflow).toBe(true);
+    });
+
+    it("overflow flag propagates through subsequent adds", () => {
+      const overflowed = erAdd(FINITE(Number.MAX_SAFE_INTEGER), FINITE(1));
+      const next = erAdd(overflowed, FINITE(-1000));
+      expect(next.overflow).toBe(true);
+    });
+
+    it("non-overflowing add has no overflow flag", () => {
+      const result = erAdd(FINITE(3), FINITE(4));
+      expect(result.overflow).toBeUndefined();
+    });
   });
 
   describe("erMultiplyByProb", () => {
@@ -128,6 +153,15 @@ describe("Extended Real Arithmetic", () => {
     it("indeterminate makes comparison null", () => {
       expect(erCompare(INDETERMINATE, FINITE(0))).toBeNull();
       expect(erCompare(FINITE(0), INDETERMINATE)).toBeNull();
+    });
+
+    it("distinct tiny finite values do NOT falsely tie (spec 4.4, review)", () => {
+      // Previously a 1e-12 absolute tolerance bucketed 0 and 5e-13 as equal.
+      const c = erCompare(FINITE(0), FINITE(5e-13));
+      expect(c).not.toBe(0);
+      expect(c).toBeLessThan(0);
+      const r = rankByEU([1], [[cell(FINITE(0))], [cell(FINITE(5e-13))]]);
+      expect(r.bestIndices).toEqual([1]);
     });
   });
 
@@ -209,10 +243,40 @@ describe("Probability Normalization", () => {
     expect(probs[1]).toBe(0);
   });
 
-  it("all-zero weights returns all zeros", () => {
+  it("all-zero weights is an explicit no-probability-assigned state (spec 4.2)", () => {
     const ws = [wv("a", "A", 0), wv("b", "B", 0)];
-    const probs = normalizeProbabilities(ws);
-    expect(probs).toEqual([0, 0]);
+    const res = normalizeProbabilitiesResult(ws);
+    expect(res.noProbabilityAssigned).toBe(true);
+    expect(res.probs).toEqual([0, 0]);
+    // The legacy accessor still returns the vector, but it does NOT sum to 1.
+    expect(normalizeProbabilities(ws)).toEqual([0, 0]);
+  });
+
+  it("all-excluded worldviews is also no-probability-assigned", () => {
+    const ws = [
+      wv("a", "A", 0, "custom", true),
+      wv("b", "B", 0, "custom", true),
+    ];
+    const res = normalizeProbabilitiesResult(ws);
+    expect(res.noProbabilityAssigned).toBe(true);
+  });
+
+  it("any positive weight is NOT no-probability-assigned", () => {
+    const res = normalizeProbabilitiesResult([wv("a", "A", 0), wv("b", "B", 1)]);
+    expect(res.noProbabilityAssigned).toBe(false);
+  });
+
+  it("non-finite or overflowing weights do not fabricate a distribution (review2)", () => {
+    // sum overflows to Infinity -> treated as no-probability-assigned, never NaN.
+    const inf = normalizeProbabilitiesResult([wv("a", "A", Infinity), wv("b", "B", Infinity)]);
+    expect(inf.noProbabilityAssigned).toBe(true);
+    expect(inf.probs.every(p => Number.isFinite(p))).toBe(true);
+
+    // NaN weight is treated as 0 contribution.
+    const nan = normalizeProbabilitiesResult([wv("a", "A", NaN), wv("b", "B", 5)]);
+    expect(nan.noProbabilityAssigned).toBe(false);
+    expect(nan.probs[0]).toBe(0);
+    expect(nan.probs[1]).toBeCloseTo(1);
   });
 
   it("negative weights treated as 0", () => {
@@ -472,6 +536,39 @@ describe("Maximin", () => {
     const m = computeMaximin(probs, matrix, true);
     expect(m.bestIndices).toEqual([0, 1]);
   });
+
+  it("breaks shared -inf worst case by the next-worst payoff (spec 4.6, review)", () => {
+    // Both actions have -inf in state 0; action 0's next-worst is 100, action
+    // 1's is 0. Action 0 must win by the next-worst tie-break.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(NEG_INF), cell(FINITE(100))],
+      [cell(NEG_INF), cell(FINITE(0))],
+    ];
+    const m = computeMaximin(probs, matrix, true);
+    expect(m.bestIndices).toEqual([0]);
+  });
+
+  it("genuinely identical worst sequences remain tied", () => {
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(NEG_INF), cell(FINITE(50))],
+      [cell(NEG_INF), cell(FINITE(50))],
+    ];
+    const m = computeMaximin(probs, matrix, true);
+    expect(m.bestIndices).toEqual([0, 1]);
+  });
+
+  it("next-worst tie-break continues to further outcomes", () => {
+    const probs = [1 / 3, 1 / 3, 1 / 3];
+    const matrix = [
+      [cell(NEG_INF), cell(FINITE(10)), cell(FINITE(5))],
+      [cell(NEG_INF), cell(FINITE(10)), cell(FINITE(8))],
+    ];
+    const m = computeMaximin(probs, matrix, true);
+    // worst (-inf) tied, next-worst: 5 vs 8 -> action 1 wins.
+    expect(m.bestIndices).toEqual([1]);
+  });
 });
 
 // --- Minimax Regret ---
@@ -648,11 +745,14 @@ describe("Full Decision", () => {
     expect(result.headline.disagreement).toBe(true);
   });
 
-  it("all-zero weights edge case", () => {
+  it("all-zero weights produces an explicit no-probability state with NO EU optimum (spec 4.2)", () => {
+    // Review finding: previously returned probs [0,0] and fabricated an
+    // all-tied EU=0 result. The correct behavior is an explicit
+    // "no probability assigned" state with no optimum.
     const state: ScenarioState = {
       worldviews: [
-        wv("a", "A", 0),
-        wv("b", "B", 0),
+        { id: "a", name: "A", excluded: true, rawWeight: 0, template: "custom" },
+        { id: "b", name: "B", excluded: true, rawWeight: 0, template: "custom" },
       ],
       payoffMatrix: [
         [cell(FINITE(100)), cell(FINITE(200))],
@@ -663,7 +763,69 @@ describe("Full Decision", () => {
       possibilityFilteredMaximin: true,
     };
     const result = computeFullDecision(state);
-    expect(result.probs).toEqual([0, 0]);
+    expect(result.noProbabilityAssigned).toBe(true);
+    expect(result.headline.pick).toBeNull();
+    expect(result.headline.euOptimum).toEqual([]);
+    expect(result.headline.rule).toBe("none");
+    expect(result.headline.disagreement).toBe(false);
+  });
+
+  it("EU tied at +inf with tiebreak off reports no single pick, honest tie (review)", () => {
+    const state: ScenarioState = {
+      worldviews: [wv("a", "A", 50), wv("b", "B", 50)],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(0))],
+        [cell(FINITE(0)), cell(POS_INF)],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.euRanking.tiedAtInfinity).toBe(true);
+    expect(result.headline.pick).toBeNull();
+    expect(result.headline.euTied).toBe(true);
+    expect(result.headline.euOptimum.sort()).toEqual([0, 1]);
+    expect(result.headline.rule).not.toBe("expected utility");
+  });
+
+  it("all-indeterminate EUs report 'no defined optimum', not a fabricated EU pick (review)", () => {
+    const state: ScenarioState = {
+      worldviews: [wv("a", "A", 50), wv("b", "B", 50)],
+      payoffMatrix: [
+        [cell(POS_INF), cell(NEG_INF)],
+        [cell(NEG_INF), cell(POS_INF)],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.euRanking.hasIndeterminate).toBe(true);
+    expect(result.headline.euUndefined).toBe(true);
+    expect(result.headline.pick).toBeNull();
+    expect(result.headline.rule).not.toBe("expected utility");
+  });
+
+  it("lexicographic tiebreak that cannot separate reports a tie, not a pick (review2)", () => {
+    // Both actions: +inf on the single state, equal infinite-reward mass and
+    // equal finite remainder. Even with the tiebreak ON, no unique pick.
+    const state: ScenarioState = {
+      worldviews: [wv("a", "A", 100)],
+      payoffMatrix: [
+        [cell(POS_INF)],
+        [cell(POS_INF)],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: true,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.lexResult).not.toBeNull();
+    expect(result.lexResult!.topTieSet.sort()).toEqual([0, 1]);
+    expect(result.headline.pick).toBeNull();
+    expect(result.headline.euTied).toBe(true);
+    expect(result.headline.euOptimum.sort()).toEqual([0, 1]);
   });
 });
 
@@ -730,6 +892,266 @@ describe("Payoff Sensitivity", () => {
     const sens = computePayoffSensitivity(0, 0, probs, matrix, worldviews, -5000, 5000);
     // State 0 has zero credence, so varying its payoff changes nothing
     expect(sens.breakpoints.length).toBe(0);
+  });
+});
+
+// --- Sensitivity: verified review findings ---
+
+describe("Credence Sensitivity (review findings)", () => {
+  const wvs = [wv("a", "A", 0), wv("b", "B", 100)];
+
+  it("infinite action wins for t>0 with a discontinuity at t=0 (spec 4.7, review)", () => {
+    // probs [0,1]; action 0 has +inf at varied state 0, finite 0 elsewhere;
+    // action 1 finite. For any t>0, action 0's EU jumps to +inf and wins.
+    // At t=0 the varied state is excluded, so the finite envelope decides
+    // (action 1, EU 1 > action 0's EU 0).
+    const probs = [0, 1];
+    const matrix = [
+      [cell(POS_INF), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(1))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    expect(sens.discontinuityAtZero).toBe(true);
+
+    // The open interval (0,1] must be won by the infinite action 0.
+    const openInterval = sens.intervals.find(iv => iv.infinite);
+    expect(openInterval).toBeDefined();
+    expect(openInterval!.optimalActions).toContain(0);
+    expect(openInterval!.end).toBeCloseTo(1);
+
+    // At t=0 boundary, action 1 is the finite optimum.
+    const zeroBoundary = sens.intervals.find(iv => !iv.infinite && iv.start === 0 && iv.end === 0);
+    expect(zeroBoundary).toBeDefined();
+    expect(zeroBoundary!.optimalActions).toContain(1);
+  });
+
+  it("keeps exact breakpoints arbitrarily close to t=0 (no endpoint epsilon, review)", () => {
+    // Action 0 EU = t (finite). Action 1 EU = 5e-13 * (1-t). They cross near
+    // t = 5e-13. Action 1 wins just above 0, action 0 wins after the crossing.
+    const probs = [0, 1];
+    const matrix = [
+      [cell(FINITE(1)), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(5e-13))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    expect(sens.breakpoints.length).toBeGreaterThanOrEqual(1);
+    expect(sens.breakpoints[0]).toBeGreaterThan(0);
+    expect(sens.breakpoints[0]).toBeLessThan(1e-6);
+    // Both actions appear as optima across the range.
+    const opts = new Set(sens.intervals.flatMap(iv => iv.optimalActions));
+    expect(opts.has(0)).toBe(true);
+    expect(opts.has(1)).toBe(true);
+  });
+
+  it("represents a boundary/everywhere tie as a set, not a single action (review)", () => {
+    // Identical affine lines: both actions optimal everywhere.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(FINITE(1)), cell(FINITE(1))],
+      [cell(FINITE(1)), cell(FINITE(1))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    expect(sens.intervals.length).toBeGreaterThan(0);
+    for (const iv of sens.intervals) {
+      expect(iv.optimalActions.sort()).toEqual([0, 1]);
+    }
+  });
+
+  it("reports renormalization undefined and emits NO invented intervals when currentP === 1 (review2)", () => {
+    const probs = [1, 0, 0];
+    const matrix = [
+      [cell(FINITE(0)), cell(FINITE(1000)), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(1000))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, [wv("a", "A", 1), wv("b", "B", 0), wv("c", "C", 0)]);
+    expect(sens.renormalizationUndefined).toBe(true);
+    // Must not fabricate an envelope from invented zero weights.
+    expect(sens.intervals).toEqual([]);
+  });
+
+  it("includes a +inf action coming from a NON-varied state (review2)", () => {
+    // varyIdx = 0. Action 0 has +inf in state 1 (positive counterfactual mass),
+    // so its EU is +inf for every t < 1 and it must win, not be dropped.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(FINITE(0)), cell(POS_INF)],
+      [cell(FINITE(100)), cell(FINITE(0))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    // Somewhere in (0,1) action 0 must be the (infinite) optimum.
+    const infInterval = sens.intervals.find(iv => iv.infinite && iv.end > iv.start);
+    expect(infInterval).toBeDefined();
+    expect(infInterval!.optimalActions).toContain(0);
+  });
+
+  it("does NOT treat a varied +inf as dominant when another state is indeterminate-inducing (review2)", () => {
+    // varyIdx = 0. Action 0: +inf in varied state, -inf in non-varied state 1
+    // with positive counterfactual mass -> EU is INDETERMINATE for 0<t<1, so
+    // action 0 must not win the open interval; action 1 (finite) should.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(POS_INF), cell(NEG_INF)],
+      [cell(FINITE(0)), cell(FINITE(0))],
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    const openMiddle = sens.intervals.find(iv => iv.end > iv.start && iv.start > 0 && iv.end < 1)
+      ?? sens.intervals.find(iv => iv.end > iv.start);
+    expect(openMiddle).toBeDefined();
+    expect(openMiddle!.optimalActions).toContain(1);
+    expect(openMiddle!.optimalActions).not.toContain(0);
+  });
+
+  it("does not falsely tie near a tiny exact breakpoint (review2)", () => {
+    // The 5e-13 crossing: just above 0, action 1 STRICTLY wins (no 1e-9 bucket).
+    const probs = [0, 1];
+    const matrix = [
+      [cell(FINITE(1)), cell(FINITE(0))],     // EU = t
+      [cell(FINITE(0)), cell(FINITE(5e-13))], // EU = 5e-13 (1-t)
+    ];
+    const sens = computeCredenceSensitivity(0, probs, matrix, wvs);
+    // The first open interval after t=0 must be action 1 ALONE, not a tie set.
+    const first = sens.intervals.find(iv => iv.end > iv.start);
+    expect(first).toBeDefined();
+    expect(first!.optimalActions).toEqual([1]);
+  });
+
+  it("emits a tie at the LOWER endpoint t=0 (review2b)", () => {
+    // EU0 = t, EU1 = 0. At t=0 both are 0 -> tie {0,1}; for t>0 action 0 wins.
+    const sens = computeCredenceSensitivity(0, [0.5, 0.5], [
+      [cell(FINITE(1)), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(0))],
+    ], wvs);
+    const loTie = sens.intervals.find(iv => iv.start === 0 && iv.end === 0);
+    expect(loTie).toBeDefined();
+    expect(loTie!.optimalActions.sort()).toEqual([0, 1]);
+  });
+
+  it("emits a tie at the UPPER endpoint t=1 (review2b)", () => {
+    // EU0 = t, EU1 = 1. At t=1 both are 1 -> tie {0,1}; for t<1 action 1 wins.
+    const sens = computeCredenceSensitivity(0, [0.5, 0.5], [
+      [cell(FINITE(1)), cell(FINITE(0))],
+      [cell(FINITE(1)), cell(FINITE(1))],
+    ], wvs);
+    const hiTie = sens.intervals.find(iv => iv.start === 1 && iv.end === 1);
+    expect(hiTie).toBeDefined();
+    expect(hiTie!.optimalActions.sort()).toEqual([0, 1]);
+  });
+
+  it("captures the +inf winner that only appears exactly at t=1 (review2b)", () => {
+    // Action 0: +inf in varied state, -inf in state 1. Indeterminate for
+    // 0<t<1 (action 1 wins), but exactly at t=1 the -inf is excluded (prob 0)
+    // and action 0 = +inf, the unique winner.
+    const sens = computeCredenceSensitivity(0, [0.5, 0.5], [
+      [cell(POS_INF), cell(NEG_INF)],
+      [cell(FINITE(0)), cell(FINITE(0))],
+    ], wvs);
+    const open = sens.intervals.find(iv => iv.end > iv.start);
+    expect(open!.optimalActions).toEqual([1]);
+    const at1 = sens.intervals.find(iv => iv.start === 1 && iv.end === 1);
+    expect(at1).toBeDefined();
+    expect(at1!.optimalActions).toEqual([0]);
+    expect(at1!.infinite).toBe(true);
+  });
+
+  it("flags discontinuityAtZero even when the winning action does not change (review2b)", () => {
+    // Action 0: +inf in varied state (EU jumps 0 -> +inf at t=0) but wins both
+    // at t=0 (0 > -1) and t>0 (+inf). Still a discontinuity in EU value.
+    const sens = computeCredenceSensitivity(0, [0.5, 0.5], [
+      [cell(POS_INF), cell(FINITE(0))],
+      [cell(FINITE(-1)), cell(FINITE(-1))],
+    ], wvs);
+    expect(sens.discontinuityAtZero).toBe(true);
+  });
+
+  it("does NOT treat a valid near-1 credence as renormalization-undefined (review2b)", () => {
+    // currentP extremely close to but not exactly 1: renorm is still defined.
+    const p = 1 - 1e-12;
+    const sens = computeCredenceSensitivity(0, [p, 1 - p], [
+      [cell(FINITE(1)), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(1))],
+    ], wvs);
+    expect(sens.renormalizationUndefined).toBeUndefined();
+    expect(sens.intervals.length).toBeGreaterThan(0);
+  });
+});
+
+describe("Payoff Sensitivity (review findings)", () => {
+  const wvs = [wv("a", "A", 50), wv("b", "B", 50)];
+
+  it("varying a zero-probability payoff leaves the EU optimum unchanged (review)", () => {
+    // probs [0,1]; action 1 EU = 10 (from state 1), action 0 EU = 0. Varying
+    // the (action1,state0) payoff over the whole range cannot change anything.
+    const probs = [0, 1];
+    const matrix = [
+      [cell(FINITE(0)), cell(FINITE(0))],
+      [cell(FINITE(0)), cell(FINITE(10))],
+    ];
+    const sens = computePayoffSensitivity(1, 0, probs, matrix, wvs, -100, 100);
+    expect(sens.intervals.length).toBe(1);
+    expect(sens.intervals[0].optimalActions).toContain(1);
+    expect(sens.intervals[0].start).toBe(-100);
+    expect(sens.intervals[0].end).toBe(100);
+  });
+
+  it("keeps an exact breakpoint arbitrarily close to rangeMin (no endpoint epsilon, review)", () => {
+    // probs [1]; action 0 EU = t (varied), action 1 EU = 5e-13. Crossing at
+    // t = 5e-13: action 1 wins before, action 0 wins after.
+    const probs = [1];
+    const matrix = [
+      [cell(FINITE(0))],
+      [cell(FINITE(5e-13))],
+    ];
+    const sens = computePayoffSensitivity(0, 0, probs, matrix, [wv("a", "A", 1)], 0, 1);
+    expect(sens.breakpoints.length).toBe(1);
+    expect(sens.breakpoints[0]).toBeCloseTo(5e-13, 20);
+    // Action 1 before the breakpoint, action 0 after.
+    expect(sens.intervals[0].optimalActions).toContain(1);
+    expect(sens.intervals[sens.intervals.length - 1].optimalActions).toContain(0);
+  });
+
+  it("includes non-finite (+inf) actions in the envelope (review)", () => {
+    // Action 0 has +inf EU across the whole range (POS_INF in state 1 with
+    // positive prob); action 1 is finite. Action 0 must be optimal throughout.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(FINITE(0)), cell(POS_INF)],
+      [cell(FINITE(10)), cell(FINITE(0))],
+    ];
+    const sens = computePayoffSensitivity(1, 0, probs, matrix, wvs, -100, 100);
+    expect(sens.intervals.length).toBe(1);
+    expect(sens.intervals[0].optimalActions).toEqual([0]);
+    expect(sens.intervals[0].infinite).toBe(true);
+  });
+
+  it("emits an exact boundary tie interval at the crossing (review2)", () => {
+    // probs [1]; action 0 EU = t, action 1 EU = 0. They cross exactly at t=0:
+    // action 1 on [-1,0), tie {0,1} at exactly 0, action 0 on (0,1].
+    const probs = [1];
+    const matrix = [
+      [cell(FINITE(0))],
+      [cell(FINITE(0))],
+    ];
+    const sens = computePayoffSensitivity(0, 0, probs, matrix, [wv("a", "A", 1)], -1, 1);
+    const tie = sens.intervals.find(iv => iv.start === iv.end && iv.optimalActions.length > 1);
+    expect(tie).toBeDefined();
+    expect(tie!.start).toBeCloseTo(0);
+    expect(tie!.optimalActions.sort()).toEqual([0, 1]);
+    // Flanking open intervals are single winners.
+    const before = sens.intervals.find(iv => iv.end > iv.start && iv.end <= 0);
+    const after = sens.intervals.find(iv => iv.end > iv.start && iv.start >= 0);
+    expect(before!.optimalActions).toEqual([1]);
+    expect(after!.optimalActions).toEqual([0]);
+  });
+
+  it("emits a tie at the UPPER range endpoint (review2b)", () => {
+    // probs [1]; action 0 EU = t, action 1 EU = 1. They meet exactly at t=1.
+    const sens = computePayoffSensitivity(0, 0, [1], [
+      [cell(FINITE(0))],
+      [cell(FINITE(1))],
+    ], [wv("a", "A", 1)], 0, 1);
+    const tie = sens.intervals.find(iv => iv.start === 1 && iv.end === 1);
+    expect(tie).toBeDefined();
+    expect(tie!.optimalActions.sort()).toEqual([0, 1]);
   });
 });
 
@@ -834,6 +1256,51 @@ describe("URL State Codec", () => {
     expect(decodeState("{}")).toBeNull();
   });
 
+  it("rejects an invalid ExtendedRealTag on decode (review)", () => {
+    // A bogus tag must not be accepted; previously erCompare ranked unknown
+    // tags like +inf.
+    const encoded = JSON.stringify({
+      worldviews: [{ id: "a", name: "A", excluded: false, rawWeight: 1, template: "custom" }],
+      matrix: [[{ tag: "bogus", value: 0 }]],
+      utilityMode: "finite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    });
+    expect(decodeState(encoded)).toBeNull();
+  });
+
+  it("rejects an invalid template on decode", () => {
+    const encoded = JSON.stringify({
+      worldviews: [{ id: "a", name: "A", excluded: false, rawWeight: 1, template: "not_a_template" }],
+      matrix: [[{ tag: "finite", value: 0 }]],
+      utilityMode: "finite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    });
+    expect(decodeState(encoded)).toBeNull();
+  });
+
+  it("isValidExtendedRealTag validates tags", () => {
+    expect(isValidExtendedRealTag("finite")).toBe(true);
+    expect(isValidExtendedRealTag("pos_inf")).toBe(true);
+    expect(isValidExtendedRealTag("bogus")).toBe(false);
+    expect(isValidExtendedRealTag(2)).toBe(false);
+  });
+
+  it("encodeState is deterministic for the same state", () => {
+    const state: ScenarioState = {
+      worldviews: [wv("god", "Belief", 50, "exclusivist"), wv("sec", "Secular", 50, "secular")],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-100))],
+        [cell(NEG_INF), cell(FINITE(500))],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    expect(encodeState(state)).toBe(encodeState(state));
+  });
+
   it("stateToSerializable and back preserves structure", () => {
     const state: ScenarioState = {
       worldviews: [wv("x", "X", 100, "exclusivist")],
@@ -844,8 +1311,9 @@ describe("URL State Codec", () => {
     };
     const s = stateToSerializable(state);
     const back = serializableToState(s);
-    expect(back.worldviews[0].template).toBe("exclusivist");
-    expect(back.payoffMatrix[0][0].value.tag).toBe("pos_inf");
+    expect(back).not.toBeNull();
+    expect(back!.worldviews[0].template).toBe("exclusivist");
+    expect(back!.payoffMatrix[0][0].value.tag).toBe("pos_inf");
   });
 });
 
@@ -881,5 +1349,47 @@ describe("Minimax Regret with Infinities", () => {
     // State 1: best = 100, action 0 regret = 100
     // MaxRegret(0) = 100 (finite), MaxRegret(1) = pos_inf
     expect(r.bestIndices).toEqual([0]);
+  });
+
+  it("flags positive-infinity regret distinctly (spec 4.6, review)", () => {
+    const probs = [1];
+    const matrix = [
+      [cell(POS_INF)],
+      [cell(FINITE(0))],
+    ];
+    const r = computeMinimaxRegret(probs, matrix);
+    // Action 1 has +inf regret; action 0 has 0 regret.
+    expect(r.infiniteFlags[1]).toBe(true);
+    expect(r.undefinedFlags[1]).toBe(false);
+    expect(r.infiniteFlags[0]).toBe(false);
+    expect(r.maxRegrets[1]?.tag).toBe("pos_inf");
+    expect(r.bestIndices).toEqual([0]);
+  });
+
+  it("flags undefined regret distinctly from +inf", () => {
+    // An indeterminate cell yields an undefined regret for that action.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(INDETERMINATE), cell(FINITE(0))],
+      [cell(FINITE(10)), cell(FINITE(10))],
+    ];
+    const r = computeMinimaxRegret(probs, matrix);
+    expect(r.undefinedFlags[0]).toBe(true);
+    expect(r.maxRegrets[0]).toBeNull();
+    expect(r.infiniteFlags[0]).toBe(false);
+  });
+
+  it("an action can be flagged BOTH undefined and +inf regret (review2)", () => {
+    // Action 0: state 0 indeterminate -> undefined regret; state 1 best is +inf
+    // (action 1) vs action 0 finite -> +inf regret. Both facts are reported.
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(INDETERMINATE), cell(FINITE(0))],
+      [cell(FINITE(10)), cell(POS_INF)],
+    ];
+    const r = computeMinimaxRegret(probs, matrix);
+    expect(r.undefinedFlags[0]).toBe(true);
+    expect(r.infiniteFlags[0]).toBe(true);
+    expect(r.maxRegrets[0]).toBeNull(); // undefined dominates the max-regret value
   });
 });

@@ -8,6 +8,10 @@ export type ExtendedRealTag = "finite" | "pos_inf" | "neg_inf" | "indeterminate"
 export interface ExtendedReal {
   tag: ExtendedRealTag;
   value: number; // meaningful only when tag === "finite"
+  // Spec 4.1: finite overflow must "clamp and flag". When a finite + finite
+  // result is clamped to the safe-integer range, overflow is set to true so
+  // the reporting layer can surface that arithmetic overflow occurred.
+  overflow?: boolean;
 }
 
 export const FINITE = (v: number): ExtendedReal => ({ tag: "finite", value: v });
@@ -22,8 +26,10 @@ export function erAdd(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
 
   if (a.tag === "finite" && b.tag === "finite") {
     const sum = a.value + b.value;
-    if (sum > SAFE_INT_LIMIT) return FINITE(SAFE_INT_LIMIT);
-    if (sum < -SAFE_INT_LIMIT) return FINITE(-SAFE_INT_LIMIT);
+    const carriedOverflow = a.overflow === true || b.overflow === true;
+    if (sum > SAFE_INT_LIMIT) return { tag: "finite", value: SAFE_INT_LIMIT, overflow: true };
+    if (sum < -SAFE_INT_LIMIT) return { tag: "finite", value: -SAFE_INT_LIMIT, overflow: true };
+    if (carriedOverflow) return { tag: "finite", value: sum, overflow: true };
     return FINITE(sum);
   }
 
@@ -54,7 +60,10 @@ export function erCompare(a: ExtendedReal, b: ExtendedReal): number | null {
   const rb = rank(b);
   if (ra !== rb) return ra - rb;
   if (a.tag === "finite" && b.tag === "finite") {
-    if (Math.abs(a.value - b.value) < 1e-12) return 0;
+    // Spec 4.4: finite EUs compare normally. No absolute tolerance bucket,
+    // so distinct finite values (even tiny ones, e.g. 0 vs 5e-13) never
+    // falsely tie.
+    if (a.value === b.value) return 0;
     return a.value - b.value;
   }
   return 0;
@@ -143,11 +152,42 @@ export interface ScenarioState {
 
 export type UtilityMode = "finite" | "infinite" | "bounded" | "lexicographic";
 
-export function normalizeProbabilities(worldviews: Worldview[]): number[] {
-  const weights = worldviews.map(w => w.excluded ? 0 : Math.max(0, w.rawWeight));
+export interface NormalizedProbabilities {
+  probs: number[];
+  // Spec 4.2: the all-zero case (no eligible worldview has positive weight) is
+  // an explicit "no probability assigned" state, never a real distribution.
+  noProbabilityAssigned: boolean;
+}
+
+/**
+ * Normalize raw nonnegative weights to probabilities (spec 4.2).
+ *
+ * Returns the full result including the explicit "no probability assigned"
+ * flag. When every eligible worldview is excluded or has zero weight, probs is
+ * all zeros and noProbabilityAssigned is true; downstream code must not treat
+ * that as a real distribution (it does not sum to 1).
+ */
+export function normalizeProbabilitiesResult(worldviews: Worldview[]): NormalizedProbabilities {
+  // Guard non-finite / negative raw weights: an excluded worldview is exactly
+  // 0; otherwise clamp to a finite nonnegative value. Infinity or NaN weights
+  // cannot define a probability and are treated as 0 contribution.
+  const weights = worldviews.map(w => {
+    if (w.excluded) return 0;
+    const raw = w.rawWeight;
+    if (!Number.isFinite(raw) || raw <= 0) return 0;
+    return raw;
+  });
   const sum = weights.reduce((s, w) => s + w, 0);
-  if (sum === 0) return weights.map(() => 0);
-  return weights.map(w => w / sum);
+  if (!Number.isFinite(sum) || sum <= 0) {
+    // All zero (or non-finite): explicit no-probability-assigned state.
+    return { probs: weights.map(() => 0), noProbabilityAssigned: true };
+  }
+  return { probs: weights.map(w => w / sum), noProbabilityAssigned: false };
+}
+
+/** Convenience accessor returning just the probability vector. */
+export function normalizeProbabilities(worldviews: Worldview[]): number[] {
+  return normalizeProbabilitiesResult(worldviews).probs;
 }
 
 // --- Expected Utility (Section 4.3) ---
@@ -212,6 +252,11 @@ export interface LexicographicResult {
   rankedIndices: number[];
   infMasses: number[];
   finiteRemainders: number[];
+  // The set of top-ranked actions that the lexicographic refinement could NOT
+  // separate (equal on both infMass and finiteRemainder). When this has more
+  // than one element, even the optional tiebreak leaves a genuine tie; callers
+  // must not pick arbitrarily from it.
+  topTieSet: number[];
 }
 
 export function lexicographicTiebreak(
@@ -239,10 +284,25 @@ export function lexicographicTiebreak(
     return y.finiteRemainder - x.finiteRemainder;
   });
 
+  // Determine how many top entries are mutually inseparable on both keys.
+  const topTieSet: number[] = [];
+  if (entries.length > 0) {
+    const top = entries[0];
+    for (const e of entries) {
+      if (Math.abs(e.infMass - top.infMass) <= 1e-15 &&
+          Math.abs(e.finiteRemainder - top.finiteRemainder) <= 1e-12) {
+        topTieSet.push(e.idx);
+      } else {
+        break;
+      }
+    }
+  }
+
   return {
     rankedIndices: entries.map(e => e.idx),
     infMasses: entries.map(e => e.infMass),
     finiteRemainders: entries.map(e => e.finiteRemainder),
+    topTieSet,
   };
 }
 
@@ -308,6 +368,48 @@ export function computeDominance(
 export interface MaximinResult {
   bestIndices: number[];
   worstPayoffs: (ExtendedReal | null)[];
+  // The full worst-to-best sorted payoff sequence per action (over the
+  // in-scope states), used for the spec 4.6 next-worst tie-break. null when
+  // the action has an indeterminate cell in scope (worst case undefined).
+  sortedPayoffs: (ExtendedReal[] | null)[];
+}
+
+/**
+ * Compare two actions for maximin (spec 4.6).
+ *
+ * Primary key: the single worst payoff (extended-real order; any -inf worst
+ * case makes the action maximally bad). Standard maximin ties two actions with
+ * equal worst cases. The spec adds ONE refinement: when the shared worst case
+ * is negative infinity, break the tie by comparing the next-worst outcome, then
+ * the next, lexicographically over the ascending sorted sequences (so two
+ * actions that are both "maximally bad" at -inf are still distinguished by how
+ * bad they are beyond that). If still tied, reported tied. For finite (or
+ * +inf) shared worst cases, no next-worst tie-break: they tie as in ordinary
+ * maximin. Returns >0 if a is strictly better, <0 if b is, 0 if tied.
+ */
+function compareMaximinSequences(a: ExtendedReal[], b: ExtendedReal[]): number {
+  const wa = a[0];
+  const wb = b[0];
+  const worstCmp = erCompare(wa, wb);
+  if (worstCmp === null) return 0;
+  if (worstCmp !== 0) return worstCmp;
+
+  // Worst cases are equal. Only -inf shared worst cases get the next-worst
+  // tie-break (spec 4.6). Otherwise, ordinary maximin reports a tie.
+  if (wa.tag !== "neg_inf") return 0;
+
+  const len = Math.max(a.length, b.length);
+  for (let i = 1; i < len; i++) {
+    const ai = a[i];
+    const bi = b[i];
+    if (ai === undefined && bi === undefined) return 0;
+    if (ai === undefined) return -1; // a exhausted, b still has worse-to-go
+    if (bi === undefined) return 1;
+    const c = erCompare(ai, bi);
+    if (c === null) return 0;
+    if (c !== 0) return c;
+  }
+  return 0;
 }
 
 export function computeMaximin(
@@ -317,48 +419,55 @@ export function computeMaximin(
 ): MaximinResult {
   const n = matrix.length;
   const worstPayoffs: (ExtendedReal | null)[] = [];
+  const sortedPayoffs: (ExtendedReal[] | null)[] = [];
 
   for (let a = 0; a < n; a++) {
-    let worst: ExtendedReal | null = null;
+    const inScope: ExtendedReal[] = [];
+    let undefinedWorst = false;
     for (let s = 0; s < probs.length; s++) {
       if (possibilityFiltered && probs[s] === 0) continue;
       const cell = matrix[a][s].value;
       if (cell.tag === "indeterminate") {
-        worst = null;
+        undefinedWorst = true;
         break;
       }
-      if (worst === null) {
-        worst = cell;
-      } else {
-        const m = erMin(worst, cell);
-        if (m === null) { worst = null; break; }
-        worst = m;
-      }
+      inScope.push(cell);
     }
-    worstPayoffs.push(worst);
+    if (undefinedWorst || inScope.length === 0) {
+      worstPayoffs.push(null);
+      sortedPayoffs.push(null);
+      continue;
+    }
+    // Ascending sort: index 0 is the worst, index 1 the next-worst, etc.
+    const sorted = inScope.slice().sort((x, y) => {
+      const c = erCompare(x, y);
+      return c === null ? 0 : c;
+    });
+    sortedPayoffs.push(sorted);
+    worstPayoffs.push(sorted[0]);
   }
 
   let bestIndices: number[] = [];
-  let bestWorst: ExtendedReal | null = null;
+  let bestSeq: ExtendedReal[] | null = null;
 
   for (let a = 0; a < n; a++) {
-    const w = worstPayoffs[a];
-    if (w === null) continue;
-    if (bestWorst === null) {
-      bestWorst = w;
+    const seq = sortedPayoffs[a];
+    if (seq === null) continue;
+    if (bestSeq === null) {
+      bestSeq = seq;
       bestIndices = [a];
     } else {
-      const c = erCompare(w, bestWorst);
-      if (c !== null && c > 0) {
-        bestWorst = w;
+      const c = compareMaximinSequences(seq, bestSeq);
+      if (c > 0) {
+        bestSeq = seq;
         bestIndices = [a];
-      } else if (c !== null && c === 0) {
+      } else if (c === 0) {
         bestIndices.push(a);
       }
     }
   }
 
-  return { bestIndices, worstPayoffs };
+  return { bestIndices, worstPayoffs, sortedPayoffs };
 }
 
 // --- Minimax Regret (Section 4.6) ---
@@ -367,6 +476,13 @@ export interface MinimaxRegretResult {
   bestIndices: number[];
   maxRegrets: (ExtendedReal | null)[];
   regretMatrix: (ExtendedReal | null)[][];
+  // Spec 4.6: an action with any undefined regret (indeterminate cell) or any
+  // positive-infinity regret is flagged accordingly, distinctly. undefinedFlags
+  // is set when the action has at least one undefined regret cell;
+  // infiniteFlags when its max regret is positive infinity. These are kept
+  // separate so the reporting layer never collapses "undefined" into "+inf".
+  undefinedFlags: boolean[];
+  infiniteFlags: boolean[];
 }
 
 export function computeMinimaxRegret(
@@ -395,11 +511,14 @@ export function computeMinimaxRegret(
 
   const regretMatrix: (ExtendedReal | null)[][] = [];
   const maxRegrets: (ExtendedReal | null)[] = [];
+  const undefinedFlags: boolean[] = [];
+  const infiniteFlags: boolean[] = [];
 
   for (let a = 0; a < n; a++) {
     const row: (ExtendedReal | null)[] = [];
     let maxR: ExtendedReal | null = null;
     let hasUndefined = false;
+    let hasInfinite = false;
 
     for (let s = 0; s < nStates; s++) {
       if (probs[s] === 0) { row.push(null); continue; }
@@ -424,6 +543,7 @@ export function computeMinimaxRegret(
         row.push(null);
         hasUndefined = true;
       } else {
+        if (regret.tag === "pos_inf") hasInfinite = true;
         row.push(regret);
         if (maxR === null) {
           maxR = regret;
@@ -435,7 +555,13 @@ export function computeMinimaxRegret(
       }
     }
     regretMatrix.push(row);
+    // Undefined regret makes the action's MAX regret undefined (null), so it is
+    // not minimax-eligible. But undefined and +inf are reported as distinct,
+    // independent facts (spec 4.6): an action can have BOTH an undefined cell
+    // and a +inf cell, and both flags are set.
     maxRegrets.push(hasUndefined ? null : maxR);
+    undefinedFlags.push(hasUndefined);
+    infiniteFlags.push(hasInfinite);
   }
 
   let bestIndices: number[] = [];
@@ -458,20 +584,33 @@ export function computeMinimaxRegret(
     }
   }
 
-  return { bestIndices, maxRegrets, regretMatrix };
+  return { bestIndices, maxRegrets, regretMatrix, undefinedFlags, infiniteFlags };
 }
 
 // --- Full Decision Result ---
 
 export interface DecisionResult {
   probs: number[];
+  // Spec 4.2: true when no eligible worldview has positive weight. The state
+  // carries no probability distribution and no decision rule is evaluated.
+  noProbabilityAssigned: boolean;
   euRanking: EURanking;
   lexResult: LexicographicResult | null;
   dominance: DominanceResult;
   maximin: MaximinResult;
   minimaxRegret: MinimaxRegretResult;
   headline: {
-    pick: string;
+    // pick is null whenever expected utility cannot name a unique optimum
+    // (genuine +inf tie with tiebreak off, all-indeterminate EU, or no
+    // probability assigned). The reporting layer must not fabricate a pick.
+    pick: string | null;
+    // The EU-optimal action set, honestly: one element for a unique optimum,
+    // multiple for a tie, empty when EU has no defined optimum.
+    euOptimum: number[];
+    // True when EU genuinely cannot discriminate a single optimum.
+    euTied: boolean;
+    // True when no action has a defined (non-indeterminate) expectation.
+    euUndefined: boolean;
     rule: string;
     reason: string;
     disagreement: boolean;
@@ -479,7 +618,8 @@ export interface DecisionResult {
 }
 
 export function computeFullDecision(state: ScenarioState): DecisionResult {
-  const probs = normalizeProbabilities(state.worldviews);
+  const norm = normalizeProbabilitiesResult(state.worldviews);
+  const probs = norm.probs;
   const euRanking = rankByEU(probs, state.payoffMatrix);
   const dominance = computeDominance(probs, state.payoffMatrix);
   const maximin = computeMaximin(probs, state.payoffMatrix, state.possibilityFilteredMaximin);
@@ -490,17 +630,56 @@ export function computeFullDecision(state: ScenarioState): DecisionResult {
     lexResult = lexicographicTiebreak(euRanking.bestIndices, probs, state.payoffMatrix);
   }
 
-  const euPick = lexResult && lexResult.rankedIndices.length > 0
-    ? [lexResult.rankedIndices[0]]
+  // Spec 4.2: no probability assigned. Surface explicitly; do not evaluate or
+  // fabricate any EU optimum.
+  if (norm.noProbabilityAssigned) {
+    return {
+      probs,
+      noProbabilityAssigned: true,
+      euRanking,
+      lexResult: null,
+      dominance,
+      maximin,
+      minimaxRegret,
+      headline: {
+        pick: null,
+        euOptimum: [],
+        euTied: false,
+        euUndefined: false,
+        rule: "none",
+        reason: "No probability is assigned: every worldview is excluded or has zero weight. The model cannot evaluate any decision rule until at least one worldview has positive credence.",
+        disagreement: false,
+      },
+    };
+  }
+
+  // Determine the honest EU optimum set.
+  // - lexicographic tiebreak, when on and the tie is at +inf, yields the set of
+  //   top entries it could separate to; if that top set is still >1 (equal mass
+  //   AND remainder), the tiebreak genuinely failed and the tie stands.
+  // - otherwise the EU optimum is exactly rankByEU's bestIndices.
+  const euOptimum = lexResult && lexResult.topTieSet.length > 0
+    ? lexResult.topTieSet
     : euRanking.bestIndices;
 
+  const euUndefined = euRanking.bestIndices.length === 0;
+  // A genuine tie EU cannot break: more than one optimum.
+  const euTied = euOptimum.length > 1;
+
+  // pick is only defined when EU names exactly one optimal action.
+  const uniquePickIdx = euOptimum.length === 1 ? euOptimum[0] : null;
+  const pickName = uniquePickIdx !== null
+    ? (state.worldviews[uniquePickIdx]?.name ?? null)
+    : null;
+
+  // Disagreement compares the rules' optimal sets. When EU has no unique pick,
+  // we still compare its optimal SET against the other rules' sets.
   const picks = {
-    eu: new Set(euPick),
+    eu: new Set(euOptimum),
     dom: dominance.dominantIndex !== null ? new Set([dominance.dominantIndex]) : new Set(dominance.undominatedIndices),
     maximin: new Set(maximin.bestIndices),
     regret: new Set(minimaxRegret.bestIndices),
   };
-
   const allPicksArr = Array.from(picks.eu)
     .concat(Array.from(picks.dom))
     .concat(Array.from(picks.maximin))
@@ -510,25 +689,34 @@ export function computeFullDecision(state: ScenarioState): DecisionResult {
     !setsEqual(picks.eu, picks.maximin) ||
     !setsEqual(picks.eu, picks.regret);
 
-  const primaryPick = euPick.length > 0 ? euPick[0] : (maximin.bestIndices[0] ?? 0);
-  const pickName = state.worldviews[primaryPick]?.name ?? "Unknown";
-
   let reason: string;
-  if (euRanking.tiedAtInfinity && !state.lexicographicTiebreak) {
-    reason = "Multiple actions have infinite expected utility and are tied. Enable the lexicographic tiebreak for a finer distinction.";
-  } else if (euRanking.tiedAtInfinity && lexResult) {
+  let rule: string;
+  if (euUndefined) {
+    rule = "expected utility (undefined)";
+    reason = "Expectation is undefined for every action (each combines positive and negative infinity). Expected utility names no optimum here.";
+  } else if (euRanking.tiedAtInfinity && !state.lexicographicTiebreak) {
+    rule = "expected utility (tied)";
+    reason = "Multiple actions have infinite expected utility and are genuinely tied. Expected utility cannot discriminate among them. Enable the lexicographic tiebreak for an optional finer distinction.";
+  } else if (euRanking.tiedAtInfinity && lexResult && lexResult.topTieSet.length === 1) {
+    rule = "expected utility + lexicographic tiebreak";
     reason = `Infinite EU tie broken lexicographically by probability mass on infinite-reward states (${(lexResult.infMasses[0] * 100).toFixed(1)}%).`;
-  } else if (euRanking.bestIndices.length > 1) {
-    reason = "Multiple actions are tied at the same expected utility.";
-  } else if (euRanking.bestIndices.length === 0) {
-    reason = "All actions have indeterminate expected utility.";
+  } else if (euRanking.tiedAtInfinity && lexResult) {
+    // Lexicographic refinement applied but could not separate the top actions
+    // (equal infinite-reward mass and finite remainder).
+    rule = "expected utility (tied)";
+    reason = "Multiple actions have infinite expected utility and remain tied even under the lexicographic tiebreak (equal infinite-reward mass and finite remainder).";
+  } else if (euTied) {
+    rule = "expected utility (tied)";
+    reason = "Multiple actions are tied at the same expected utility; expected utility names no single optimum.";
   } else {
-    const eu = euRanking.eus[primaryPick];
+    rule = "expected utility";
+    const eu = euRanking.eus[uniquePickIdx!];
     reason = `Highest expected utility: ${erToString(eu)}.`;
   }
 
   return {
     probs,
+    noProbabilityAssigned: false,
     euRanking,
     lexResult,
     dominance,
@@ -536,7 +724,10 @@ export function computeFullDecision(state: ScenarioState): DecisionResult {
     minimaxRegret,
     headline: {
       pick: pickName,
-      rule: "expected utility",
+      euOptimum,
+      euTied,
+      euUndefined,
+      rule,
       reason,
       disagreement,
     },
@@ -555,7 +746,17 @@ function setsEqual(a: Set<number>, b: Set<number>): boolean {
 export interface BreakpointInterval {
   start: number;
   end: number;
+  // The first action in the optimal set, kept for back-compatibility and
+  // simple display. Always equals optimalActions[0].
   optimalAction: number;
+  // The full optimal set over this interval (spec 4.7): more than one entry
+  // when actions tie (identical affine lines, or an exact boundary tie). For an
+  // interval whose optimum is +inf (the infinite-EU discontinuity case), this
+  // is the set of actions whose EU is +inf.
+  optimalActions: number[];
+  // True when the action(s) here are optimal because EU jumps to +inf for any
+  // t > 0 (the contested core of the Wager), not via a finite affine envelope.
+  infinite?: boolean;
 }
 
 export interface SensitivityResult {
@@ -565,6 +766,132 @@ export interface SensitivityResult {
   currentValue: number;
   breakpoints: number[];
   discontinuityAtZero: boolean;
+  // Set when proportional renormalization of the other states is undefined
+  // (currentP === 1, so there is no other positive mass to scale). The affine
+  // model does not apply; reported rather than silently invented.
+  renormalizationUndefined?: boolean;
+}
+
+// Shared helpers for sensitivity merging and tie-aware optima.
+
+function sameOptimalSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function mergeIntervals(intervals: BreakpointInterval[]): BreakpointInterval[] {
+  const merged: BreakpointInterval[] = [];
+  for (const iv of intervals) {
+    const last = merged[merged.length - 1];
+    if (last && last.infinite === iv.infinite && sameOptimalSet(last.optimalActions, iv.optimalActions)) {
+      last.end = iv.end;
+    } else {
+      merged.push({ ...iv, optimalActions: [...iv.optimalActions] });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Build a tie-aware upper envelope from a per-point extended-real evaluator and
+ * a set of candidate interior breakpoints, over [lo, hi].
+ *
+ * For each interval between consecutive breakpoints it samples the winner at
+ * the midpoint with EXACT extended-real comparison. It additionally emits a
+ * degenerate [b, b] point at any breakpoint OR endpoint whose optimum differs
+ * from the adjacent open interval(s): a tie there (set size > 1), or a unique
+ * winner that differs from the neighboring open interval (the boundary jump,
+ * e.g. the t = 0 / t = 1 degenerate-distribution discontinuities). This honors
+ * spec 4.7's "any ties at boundaries" and the boundary-discontinuity rule.
+ * Adjacent intervals with the same optimal set are merged.
+ */
+function buildEnvelope(
+  n: number,
+  lo: number,
+  hi: number,
+  interiorBreakpoints: number[],
+  euAtT: (a: number, t: number) => ExtendedReal,
+): BreakpointInterval[] {
+  const optimalSetAt = (t: number): { set: number[]; infinite: boolean } => {
+    let best: ExtendedReal | null = null;
+    for (let a = 0; a < n; a++) {
+      const v = euAtT(a, t);
+      if (v.tag === "indeterminate") continue;
+      if (best === null) { best = v; continue; }
+      const c = erCompare(v, best);
+      if (c !== null && c > 0) best = v;
+    }
+    const set: number[] = [];
+    if (best === null) return { set, infinite: false };
+    for (let a = 0; a < n; a++) {
+      const v = euAtT(a, t);
+      if (v.tag === "indeterminate") continue;
+      if (erCompare(v, best) === 0) set.push(a);
+    }
+    return { set, infinite: best.tag === "pos_inf" };
+  };
+
+  const bps = Array.from(new Set([lo, hi, ...interiorBreakpoints]))
+    .filter(t => t >= lo && t <= hi)
+    .sort((a, b) => a - b);
+
+  if (bps.length === 1) {
+    // Degenerate range: a single point. Report its optimum (tie or single).
+    const { set, infinite } = optimalSetAt(bps[0]);
+    return set.length > 0
+      ? [{ start: bps[0], end: bps[0], optimalAction: set[0], optimalActions: set, infinite: infinite || undefined }]
+      : [];
+  }
+
+  // Open-interval winners between consecutive breakpoints.
+  const openSets: { set: number[]; infinite: boolean }[] = [];
+  for (let i = 0; i < bps.length - 1; i++) {
+    openSets.push(optimalSetAt((bps[i] + bps[i + 1]) / 2));
+  }
+
+  const raw: BreakpointInterval[] = [];
+  const pushPoint = (t: number) => {
+    const { set, infinite } = optimalSetAt(t);
+    if (set.length > 0) {
+      raw.push({ start: t, end: t, optimalAction: set[0], optimalActions: set, infinite: infinite || undefined });
+    }
+  };
+
+  for (let i = 0; i < bps.length - 1; i++) {
+    const start = bps[i];
+    const end = bps[i + 1];
+    if (end <= start) continue;
+
+    // Emit a degenerate point at `start` when the point optimum differs from
+    // the open interval on either side (a tie, or a boundary jump to/from a
+    // unique winner). For the lower endpoint (i === 0) there is no left side.
+    const here = optimalSetAt(start);
+    const left = openSets[i - 1]; // open interval ending at `start`, if any
+    const right = openSets[i];
+    const differsRight = !sameOptimalSet(here.set, right.set);
+    const differsLeft = left !== undefined && !sameOptimalSet(here.set, left.set);
+    if (here.set.length > 0 && (differsRight || differsLeft)) {
+      pushPoint(start);
+    }
+
+    // Skip open intervals where NO action has a defined optimum (every action
+    // indeterminate across the interior): there is no EU optimum to report, and
+    // emitting an empty optimalActions would violate the type. The endpoints,
+    // handled as degenerate points above/below, may still carry a defined
+    // optimum (e.g. anti-diagonal infinities define +inf only at t = 0 and 1).
+    if (right.set.length > 0) {
+      raw.push({ start, end, optimalAction: right.set[0], optimalActions: right.set, infinite: right.infinite || undefined });
+    }
+  }
+  // Upper endpoint: emit when its optimum differs from the last open interval.
+  const hiPoint = optimalSetAt(bps[bps.length - 1]);
+  const lastOpen = openSets[openSets.length - 1];
+  if (hiPoint.set.length > 0 && !sameOptimalSet(hiPoint.set, lastOpen.set)) {
+    pushPoint(bps[bps.length - 1]);
+  }
+
+  return mergeIntervals(raw);
 }
 
 export function computeCredenceSensitivity(
@@ -578,105 +905,122 @@ export function computeCredenceSensitivity(
 
   const currentP = probs[varyIdx];
   const otherSum = 1 - currentP;
+  const parameter = worldviews[varyIdx]?.name ?? `Worldview ${varyIdx}`;
 
-  const getAffineCoeffs = (actionIdx: number): { slope: number; intercept: number } | null => {
-    let slope = 0;
-    let intercept = 0;
-    for (let s = 0; s < nStates; s++) {
-      const cell = matrix[actionIdx][s].value;
-      if (cell.tag !== "finite") return null;
-      if (s === varyIdx) {
-        slope += cell.value;
-      } else {
-        const baseP = otherSum > 1e-15 ? probs[s] / otherSum : (1 / (nStates - 1));
-        slope -= baseP * cell.value;
-        intercept += baseP * cell.value;
-      }
-    }
-    return { slope, intercept };
-  };
-
-  const coeffs: ({ slope: number; intercept: number } | null)[] = [];
-  for (let a = 0; a < n; a++) {
-    coeffs.push(getAffineCoeffs(a));
-  }
-
-  const finiteActions = coeffs.map((c, i) => c !== null ? i : -1).filter(i => i >= 0);
-  if (finiteActions.length === 0) {
-    return {
-      parameter: worldviews[varyIdx]?.name ?? `Worldview ${varyIdx}`,
-      parameterIndex: varyIdx,
-      intervals: [],
-      currentValue: currentP,
-      breakpoints: [],
-      discontinuityAtZero: false,
-    };
-  }
-
-  const EPS = 1e-12;
-  const rawBreakpoints = new Set<number>();
-  rawBreakpoints.add(0);
-  rawBreakpoints.add(1);
-
-  for (let i = 0; i < finiteActions.length; i++) {
-    for (let j = i + 1; j < finiteActions.length; j++) {
-      const ci = coeffs[finiteActions[i]]!;
-      const cj = coeffs[finiteActions[j]]!;
-      const dSlope = ci.slope - cj.slope;
-      if (Math.abs(dSlope) < EPS) continue;
-      const t = (cj.intercept - ci.intercept) / dSlope;
-      if (t > EPS && t < 1 - EPS) {
-        rawBreakpoints.add(t);
-      }
-    }
-  }
-
-  const sortedBps = Array.from(rawBreakpoints).sort((a, b) => a - b);
-
-  const evalAt = (t: number): number => {
-    let bestAction = finiteActions[0];
-    let bestVal = -Infinity;
-    for (const a of finiteActions) {
-      const c = coeffs[a]!;
-      const val = c.slope * t + c.intercept;
-      if (val > bestVal + EPS) {
-        bestVal = val;
-        bestAction = a;
-      }
-    }
-    return bestAction;
-  };
-
-  const intervals: BreakpointInterval[] = [];
-  for (let i = 0; i < sortedBps.length - 1; i++) {
-    const mid = (sortedBps[i] + sortedBps[i + 1]) / 2;
-    const opt = evalAt(mid);
-    intervals.push({ start: sortedBps[i], end: sortedBps[i + 1], optimalAction: opt });
-  }
-
-  const mergedIntervals: BreakpointInterval[] = [];
-  for (const iv of intervals) {
-    if (mergedIntervals.length > 0 && mergedIntervals[mergedIntervals.length - 1].optimalAction === iv.optimalAction) {
-      mergedIntervals[mergedIntervals.length - 1].end = iv.end;
-    } else {
-      mergedIntervals.push({ ...iv });
-    }
-  }
-
-  const breakpoints = mergedIntervals.slice(1).map(iv => iv.start);
+  // Undefined ONLY when there is genuinely no other mass to renormalize (the
+  // varied state already holds all probability). A tiny-but-positive otherSum
+  // still defines proportional renormalization, so do not over-trigger on a
+  // near-1 credence.
+  const renormalizationUndefined = otherSum <= 0;
 
   const hasInfAtPositive = matrix.some((row) => {
     const cell = row[varyIdx]?.value;
     return cell && (cell.tag === "pos_inf" || cell.tag === "neg_inf");
   });
 
+  // Spec 4.7 / review: when currentP === 1 there is no other positive mass to
+  // renormalize, so the proportional-renormalization model is undefined. Do not
+  // invent weights; report no determinate sensitivity.
+  if (renormalizationUndefined) {
+    return {
+      parameter,
+      parameterIndex: varyIdx,
+      intervals: [],
+      currentValue: currentP,
+      breakpoints: [],
+      discontinuityAtZero: hasInfAtPositive,
+      renormalizationUndefined: true,
+    };
+  }
+
+  // Counterfactual proportional weights for the non-varied states (sum to 1).
+  const baseP: number[] = [];
+  for (let s = 0; s < nStates; s++) baseP.push(s === varyIdx ? 0 : probs[s] / otherSum);
+
+  // EU of action a as a function of t, in extended-real arithmetic. The varied
+  // state gets probability t; every other state gets (1 - t) * baseP[s]. This
+  // honors +inf / -inf / indeterminate cells exactly (spec 4.1, 4.3).
+  const euAtT = (a: number, t: number): ExtendedReal => {
+    let acc: ExtendedReal = FINITE(0);
+    for (let s = 0; s < nStates; s++) {
+      const ps = s === varyIdx ? t : (1 - t) * baseP[s];
+      acc = erAdd(acc, erMultiplyByProb(ps, matrix[a][s].value));
+    }
+    return acc;
+  };
+
+  // Interior breakpoints come from crossings of FINITE affine pieces. An action
+  // whose EU is finite for all t in (0,1) has affine EU(t). Compute its coeffs;
+  // non-finite actions are flat extended lines (handled by euAtT/optimalSetAt at
+  // sample points), so they contribute no finite crossing.
+  const affine: ({ slope: number; intercept: number } | null)[] = [];
+  for (let a = 0; a < n; a++) {
+    // EU(t) = t*varied + (1-t)*sum(baseP[s]*cell_s). Finite only if the varied
+    // cell and every positive-baseP cell are finite.
+    let varied = 0;
+    let otherC = 0;
+    let finite = true;
+    for (let s = 0; s < nStates; s++) {
+      const cell = matrix[a][s].value;
+      if (s === varyIdx) {
+        if (cell.tag !== "finite") { finite = false; break; }
+        varied = cell.value;
+      } else if (baseP[s] > 0) {
+        if (cell.tag !== "finite") { finite = false; break; }
+        otherC += baseP[s] * cell.value;
+      }
+    }
+    // EU(t) = t*varied + (1-t)*otherC = otherC + t*(varied - otherC).
+    affine.push(finite ? { slope: varied - otherC, intercept: otherC } : null);
+  }
+
+  const interior: number[] = [];
+  // Clamp-boundary candidates (spec 4.1): where a finite affine line would
+  // reach ±MAX_SAFE_INTEGER, the clamped extended-real EU stops being affine, so
+  // a switch can occur there that the unclamped affine crossing would miss. Add
+  // those t values as candidate breakpoints (the midpoint sampling, which uses
+  // the true clamped EU, then assigns the correct winner per sub-interval).
+  for (let a = 0; a < n; a++) {
+    const c = affine[a];
+    if (!c || c.slope === 0) continue;
+    for (const bound of [SAFE_INT_LIMIT, -SAFE_INT_LIMIT]) {
+      const t = (bound - c.intercept) / c.slope;
+      if (t > 0 && t < 1) interior.push(t);
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const ci = affine[i];
+      const cj = affine[j];
+      if (!ci || !cj) continue;
+      const dSlope = ci.slope - cj.slope;
+      if (dSlope === 0) continue;
+      const t = (cj.intercept - ci.intercept) / dSlope;
+      if (t > 0 && t < 1) interior.push(t);
+    }
+  }
+
+  // Build the open-interval envelope over (0, 1) plus boundary ties. We use a
+  // tiny inset to sample the OPEN interval near the endpoints (the endpoints
+  // themselves are degenerate distributions handled separately below).
+  const intervals = buildEnvelope(n, 0, 1, interior, euAtT);
+
+  // A discontinuity at t = 0 exists whenever some action's varied-state cell is
+  // ±inf: its EU jumps between finite (at t = 0, varied excluded) and ±inf (at
+  // any t > 0). Spec 4.7 wants this reported as a discontinuity, independent of
+  // whether the winning ACTION changes. buildEnvelope already emits the t = 0
+  // boundary point when its optimum differs from the interior.
+  const discontinuityAtZero = hasInfAtPositive;
+
+  const breakpoints = intervals.filter(iv => iv.end > iv.start).slice(1).map(iv => iv.start);
+
   return {
-    parameter: worldviews[varyIdx]?.name ?? `Worldview ${varyIdx}`,
+    parameter,
     parameterIndex: varyIdx,
-    intervals: mergedIntervals,
+    intervals,
     currentValue: currentP,
     breakpoints,
-    discontinuityAtZero: hasInfAtPositive,
+    discontinuityAtZero,
   };
 }
 
@@ -691,101 +1035,105 @@ export function computePayoffSensitivity(
 ): SensitivityResult {
   const n = matrix.length;
   const p = probs[stateIdx];
+  const parameter = `Payoff(${worldviews[actionIdx]?.name}, ${worldviews[stateIdx]?.name})`;
+  const cur = matrix[actionIdx][stateIdx].value;
+  const currentValue = cur.tag === "finite" ? cur.value : 0;
 
-  if (p === 0) {
-    return {
-      parameter: `Payoff(${worldviews[actionIdx]?.name}, ${worldviews[stateIdx]?.name})`,
-      parameterIndex: stateIdx,
-      intervals: [{ start: rangeMin, end: rangeMax, optimalAction: 0 }],
-      currentValue: matrix[actionIdx][stateIdx].value.tag === "finite" ? matrix[actionIdx][stateIdx].value.value : 0,
-      breakpoints: [],
-      discontinuityAtZero: false,
-    };
-  }
-
-  const getBaseEU = (a: number, excludeCell: boolean): number | null => {
-    let sum = 0;
+  // The EU of the unvaried actions is constant across t; the EU of actionIdx is
+  // baseEU(without the varied cell) + p * t, when that base is finite. We model
+  // every action's EU as an extended real so +inf / -inf / indeterminate cells
+  // are honored (spec 4.8). Non-finite EUs are NOT dropped from the envelope.
+  const baseEU = (a: number): ExtendedReal => {
+    // EU excluding the varied cell for actionIdx, full EU otherwise.
+    let acc: ExtendedReal = FINITE(0);
     for (let s = 0; s < probs.length; s++) {
-      if (excludeCell && a === actionIdx && s === stateIdx) continue;
-      const cell = matrix[a][s].value;
-      if (cell.tag !== "finite") return null;
-      sum += probs[s] * cell.value;
+      if (a === actionIdx && s === stateIdx) continue;
+      acc = erAdd(acc, erMultiplyByProb(probs[s], matrix[a][s].value));
     }
-    return sum;
+    return acc;
+  };
+  const bases: ExtendedReal[] = [];
+  for (let a = 0; a < n; a++) bases.push(baseEU(a));
+
+  // EU of action a as a function of t. For the varied action, add p*t to its
+  // base (only meaningful when its base is finite; if its base is already
+  // infinite/indeterminate the varied finite cell cannot change the tag).
+  const euAt = (a: number, t: number): ExtendedReal => {
+    if (a !== actionIdx) return bases[a];
+    const base = bases[a];
+    if (base.tag !== "finite") return base; // varied finite cell can't flip an infinite/indeterminate base
+    return erAdd(base, FINITE(p * t));
   };
 
-  const baseEUs: (number | null)[] = [];
-  for (let a = 0; a < n; a++) {
-    baseEUs.push(getBaseEU(a, a === actionIdx));
-  }
-
-  if (baseEUs[actionIdx] === null) {
-    return {
-      parameter: `Payoff(${worldviews[actionIdx]?.name}, ${worldviews[stateIdx]?.name})`,
-      parameterIndex: stateIdx,
-      intervals: [],
-      currentValue: 0,
-      breakpoints: [],
-      discontinuityAtZero: false,
-    };
-  }
-
-  const EPS = 1e-12;
-  const rawBps = new Set<number>();
-  rawBps.add(rangeMin);
-  rawBps.add(rangeMax);
-
-  for (let a = 0; a < n; a++) {
-    if (baseEUs[a] === null) continue;
-    const otherEU = baseEUs[a]!;
-    const baseEU = baseEUs[actionIdx]!;
-    const t = (otherEU - baseEU) / p;
-    if (t > rangeMin + EPS && t < rangeMax - EPS) {
-      rawBps.add(t);
-    }
-  }
-
-  const sortedBps = Array.from(rawBps).sort((a, b) => a - b);
-
-  const evalAt = (t: number): number => {
-    let bestAction = 0;
-    let bestVal = -Infinity;
+  // Spec 4.7 / review #2: if the varied state has probability 0, varying the
+  // payoff cannot change any EU. The current EU optimum holds across the whole
+  // range. Report it explicitly rather than a placeholder action 0.
+  if (p === 0) {
+    // Sample the (constant) optimum once at any t.
+    let best: ExtendedReal | null = null;
     for (let a = 0; a < n; a++) {
-      if (baseEUs[a] === null) continue;
-      const val = a === actionIdx
-        ? baseEUs[a]! + p * t
-        : baseEUs[a]!;
-      if (val > bestVal + EPS) {
-        bestVal = val;
-        bestAction = a;
+      const v = euAt(a, 0);
+      if (v.tag === "indeterminate") continue;
+      if (best === null) { best = v; continue; }
+      const c = erCompare(v, best);
+      if (c !== null && c > 0) best = v;
+    }
+    const set: number[] = [];
+    if (best !== null) {
+      for (let a = 0; a < n; a++) {
+        const v = euAt(a, 0);
+        if (v.tag !== "indeterminate" && erCompare(v, best) === 0) set.push(a);
       }
     }
-    return bestAction;
-  };
-
-  const intervals: BreakpointInterval[] = [];
-  for (let i = 0; i < sortedBps.length - 1; i++) {
-    const mid = (sortedBps[i] + sortedBps[i + 1]) / 2;
-    intervals.push({ start: sortedBps[i], end: sortedBps[i + 1], optimalAction: evalAt(mid) });
+    return {
+      parameter,
+      parameterIndex: stateIdx,
+      intervals: set.length > 0
+        ? [{ start: rangeMin, end: rangeMax, optimalAction: set[0], optimalActions: set, infinite: best?.tag === "pos_inf" || undefined }]
+        : [],
+      currentValue,
+      breakpoints: [],
+      discontinuityAtZero: false,
+    };
   }
 
-  const merged: BreakpointInterval[] = [];
-  for (const iv of intervals) {
-    if (merged.length > 0 && merged[merged.length - 1].optimalAction === iv.optimalAction) {
-      merged[merged.length - 1].end = iv.end;
-    } else {
-      merged.push({ ...iv });
+  // Interior breakpoints: pairwise crossings of the affine lines of FINITE-base
+  // actions. Only actionIdx has nonzero slope (p); the others are flat. An
+  // action with +inf/-inf base is a flat extended line that never produces a
+  // finite crossing, but it is captured exactly by the per-point evaluator in
+  // buildEnvelope, so it is NOT dropped from the envelope (review #8).
+  const interior: number[] = [];
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n; b++) {
+      const baseA = bases[a].tag === "finite" ? bases[a].value : null;
+      const baseB = bases[b].tag === "finite" ? bases[b].value : null;
+      if (baseA === null || baseB === null) continue;
+      const slopeA = a === actionIdx ? p : 0;
+      const slopeB = b === actionIdx ? p : 0;
+      const dSlope = slopeA - slopeB;
+      if (dSlope === 0) continue;
+      const t = (baseB - baseA) / dSlope;
+      if (t > rangeMin && t < rangeMax) interior.push(t);
+    }
+  }
+  // Clamp-boundary candidate for the varied action (spec 4.1): where its EU
+  // base + p*t would reach ±MAX_SAFE_INTEGER, the clamped EU stops being affine.
+  if (p !== 0 && bases[actionIdx].tag === "finite") {
+    const base = bases[actionIdx].value;
+    for (const bound of [SAFE_INT_LIMIT, -SAFE_INT_LIMIT]) {
+      const t = (bound - base) / p;
+      if (t > rangeMin && t < rangeMax) interior.push(t);
     }
   }
 
-  const breakpoints = merged.slice(1).map(iv => iv.start);
-  const cur = matrix[actionIdx][stateIdx].value;
+  const merged = buildEnvelope(n, rangeMin, rangeMax, interior, euAt);
+  const breakpoints = merged.filter(iv => iv.end > iv.start).slice(1).map(iv => iv.start);
 
   return {
-    parameter: `Payoff(${worldviews[actionIdx]?.name}, ${worldviews[stateIdx]?.name})`,
+    parameter,
     parameterIndex: stateIdx,
     intervals: merged,
-    currentValue: cur.tag === "finite" ? cur.value : 0,
+    currentValue,
     breakpoints,
     discontinuityAtZero: false,
   };
@@ -877,35 +1225,73 @@ export function stateToSerializable(state: ScenarioState): SerializableState {
   };
 }
 
-export function serializableToState(s: SerializableState): ScenarioState {
+const VALID_ER_TAGS: ReadonlySet<string> = new Set<ExtendedRealTag>([
+  "finite", "pos_inf", "neg_inf", "indeterminate",
+]);
+const VALID_TEMPLATES: ReadonlySet<string> = new Set<TheologyTemplate>([
+  "exclusivist", "universalist", "annihilationist", "professors_god", "secular", "custom",
+]);
+const VALID_UTILITY_MODES: ReadonlySet<string> = new Set<UtilityMode>([
+  "finite", "infinite", "bounded", "lexicographic",
+]);
+
+export function isValidExtendedRealTag(tag: unknown): tag is ExtendedRealTag {
+  return typeof tag === "string" && VALID_ER_TAGS.has(tag);
+}
+
+/**
+ * Convert a serializable state back into a runtime ScenarioState, validating
+ * every ExtendedReal tag and template (spec 4.8 / 8). Returns null on any
+ * invalid tag rather than letting an unknown tag (e.g. "bogus") fall through
+ * and be ranked like +inf by erCompare.
+ */
+export function serializableToState(s: SerializableState): ScenarioState | null {
+  if (!Array.isArray(s.worldviews) || !Array.isArray(s.matrix)) return null;
+
+  for (const w of s.worldviews) {
+    if (!VALID_TEMPLATES.has(w.template)) return null;
+  }
+  if (!VALID_UTILITY_MODES.has(s.utilityMode)) return null;
+
+  const payoffMatrix: PayoffCell[][] = [];
+  for (const row of s.matrix) {
+    if (!Array.isArray(row)) return null;
+    const outRow: PayoffCell[] = [];
+    for (const cell of row) {
+      if (!isValidExtendedRealTag(cell.tag)) return null;
+      const value = typeof cell.value === "number" && Number.isFinite(cell.value) ? cell.value : 0;
+      outRow.push({ value: { tag: cell.tag, value: cell.tag === "finite" ? value : 0 } });
+    }
+    payoffMatrix.push(outRow);
+  }
+
   return {
     worldviews: s.worldviews.map(w => ({
-      id: w.id,
-      name: w.name,
-      excluded: w.excluded,
-      rawWeight: w.rawWeight,
+      id: String(w.id),
+      name: String(w.name),
+      excluded: Boolean(w.excluded),
+      rawWeight: typeof w.rawWeight === "number" && Number.isFinite(w.rawWeight) ? w.rawWeight : 0,
       template: w.template,
     })),
-    payoffMatrix: s.matrix.map(row =>
-      row.map(cell => ({ value: { tag: cell.tag, value: cell.value } }))
-    ),
+    payoffMatrix,
     utilityMode: s.utilityMode,
-    lexicographicTiebreak: s.lexicographicTiebreak,
-    possibilityFilteredMaximin: s.possibilityFilteredMaximin,
+    lexicographicTiebreak: Boolean(s.lexicographicTiebreak),
+    possibilityFilteredMaximin: Boolean(s.possibilityFilteredMaximin),
   };
 }
 
 export function encodeState(state: ScenarioState): string {
   const s = stateToSerializable(state);
+  // Deterministic: JSON.stringify over a fixed key order (spec 4.8). No
+  // randomness, no time dependence. Compression is handled at the call site.
   const json = JSON.stringify(s);
-  // lz-string import is handled at the call site to keep this module pure
   return json;
 }
 
 export function decodeState(encoded: string): ScenarioState | null {
   try {
     const s: SerializableState = JSON.parse(encoded);
-    if (!s.worldviews || !s.matrix) return null;
+    if (!s || !s.worldviews || !s.matrix) return null;
     return serializableToState(s);
   } catch {
     return null;

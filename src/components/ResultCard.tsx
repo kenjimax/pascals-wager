@@ -14,9 +14,15 @@ export function ResultCard({ result }: Props) {
         Model Result
       </div>
       <div className="text-lg font-rajdhani font-bold glow-cyan">
-        {headline.pick === "Unknown"
-          ? "No defined optimum"
-          : `Under your assumptions and the ${headline.rule} rule, the model favors: ${headline.pick}`
+        {result.noProbabilityAssigned
+          ? "No probability assigned"
+          : headline.pick === null
+            ? (headline.euUndefined
+                ? "No defined expected-utility optimum"
+                : headline.euTied
+                  ? `Expected utility ties: ${headline.euOptimum.length} actions`
+                  : "No defined optimum")
+            : `Under your assumptions and the ${headline.rule} rule, the model favors: ${headline.pick}`
         }
       </div>
       <div className="text-xs text-cp-text-dim mt-2 leading-relaxed">

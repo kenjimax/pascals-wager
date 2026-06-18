@@ -55,9 +55,12 @@ export function DecisionRulesPanel({
     euPick = "No defined optimum";
     euWhy = "All actions have indeterminate expected utility.";
   } else if (result.euRanking.tiedAtInfinity) {
-    if (result.lexResult) {
+    if (result.lexResult && result.lexResult.topTieSet.length === 1) {
       euPick = getName(result.lexResult.rankedIndices[0]);
       euWhy = `Infinite EU tie broken lexicographically. Probability mass on infinite-reward states: ${(result.lexResult.infMasses[0] * 100).toFixed(1)}%.`;
+    } else if (result.lexResult) {
+      euPick = `Tied: ${getNames(result.lexResult.topTieSet)}`;
+      euWhy = "Even the lexicographic tiebreak cannot separate these: equal infinite-reward mass and finite remainder.";
     } else {
       euPick = `Tied: ${getNames(result.euRanking.bestIndices)}`;
       euWhy = "Multiple actions have infinite expected utility. They are genuinely tied; enable lexicographic tiebreak for a finer distinction.";
