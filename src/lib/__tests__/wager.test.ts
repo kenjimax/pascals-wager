@@ -66,23 +66,26 @@ describe("Extended Real Arithmetic", () => {
       expect(erAdd(INDETERMINATE, POS_INF)).toEqual(INDETERMINATE);
     });
 
-    it("clamps near safe integer limit", () => {
+    it("flags overflow near the safe integer limit but keeps the true sum", () => {
       const big = FINITE(Number.MAX_SAFE_INTEGER - 1);
       const result = erAdd(big, FINITE(100));
       expect(result.tag).toBe("finite");
-      expect(result.value).toBe(Number.MAX_SAFE_INTEGER);
-    });
-
-    it("clamps AND flags overflow (spec 4.1)", () => {
-      const result = erAdd(FINITE(Number.MAX_SAFE_INTEGER), FINITE(1));
-      expect(result.tag).toBe("finite");
-      expect(result.value).toBe(Number.MAX_SAFE_INTEGER);
+      // True sum is kept, not clamped: clamping mid-accumulation is order-
+      // dependent and can reverse rankings. Overflow is flagged instead.
+      expect(result.value).toBe(Number.MAX_SAFE_INTEGER - 1 + 100);
       expect(result.overflow).toBe(true);
     });
 
-    it("negative overflow is clamped and flagged", () => {
+    it("flags overflow without corrupting the value (spec 4.1)", () => {
+      const result = erAdd(FINITE(Number.MAX_SAFE_INTEGER), FINITE(1));
+      expect(result.tag).toBe("finite");
+      expect(result.value).toBe(Number.MAX_SAFE_INTEGER + 1);
+      expect(result.overflow).toBe(true);
+    });
+
+    it("negative overflow is flagged and keeps the true sum", () => {
       const result = erAdd(FINITE(-Number.MAX_SAFE_INTEGER), FINITE(-1));
-      expect(result.value).toBe(-Number.MAX_SAFE_INTEGER);
+      expect(result.value).toBe(-Number.MAX_SAFE_INTEGER - 1);
       expect(result.overflow).toBe(true);
     });
 
@@ -1391,5 +1394,55 @@ describe("Minimax Regret with Infinities", () => {
     expect(r.undefinedFlags[0]).toBe(true);
     expect(r.infiniteFlags[0]).toBe(true);
     expect(r.maxRegrets[0]).toBeNull(); // undefined dominates the max-regret value
+  });
+});
+
+// --- Second-pass review fixes (re-review remaining findings) ---
+
+describe("erAdd overflow handling (no clamping)", () => {
+  it("flags overflow but keeps the true sum, never clamps the value", () => {
+    const r = erAdd(FINITE(Number.MAX_SAFE_INTEGER), FINITE(Number.MAX_SAFE_INTEGER));
+    expect(r.tag).toBe("finite");
+    expect(r.overflow).toBe(true);
+    expect(r.value).toBe(2 * Number.MAX_SAFE_INTEGER);
+  });
+
+  it("is order-independent: clamping an intermediate would skew the result", () => {
+    const big = Number.MAX_SAFE_INTEGER;
+    // True value of (big + big) - big is big. Old code clamped (big + big) to
+    // big, which made this resolve to 0. Keeping the true sum yields big.
+    const r = erAdd(erAdd(FINITE(big), FINITE(big)), FINITE(-big));
+    expect(r.value).toBe(big);
+  });
+});
+
+describe("lexicographic tiebreak relative tolerance", () => {
+  it("separates a strict finite-remainder winner even at tiny magnitudes", () => {
+    const probs = [0.5, 0.5];
+    const matrix = [
+      [cell(POS_INF), cell(FINITE(0))],     // action 0: infMass 0.5, remainder 0
+      [cell(POS_INF), cell(FINITE(1e-12))], // action 1: infMass 0.5, remainder 5e-13
+    ];
+    const lex = lexicographicTiebreak([0, 1], probs, matrix);
+    expect(lex.topTieSet).toEqual([1]); // action 1 strictly wins; not a tie
+  });
+});
+
+describe("decode rejects malformed matrix dimensions", () => {
+  it("returns null when a decoded matrix is not N by N", () => {
+    const base: ScenarioState = {
+      worldviews: [wv("a", "A", 1, "custom"), wv("b", "B", 1, "custom")],
+      payoffMatrix: [
+        [cell(FINITE(1)), cell(FINITE(2))],
+        [cell(FINITE(3)), cell(FINITE(4))],
+      ],
+      utilityMode: "finite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const s = stateToSerializable(base);
+    // Corrupt to a 1 by 1 matrix for two worldviews (a hand-edited share link).
+    s.matrix = [s.matrix[0].slice(0, 1)];
+    expect(serializableToState(s)).toBeNull();
   });
 });

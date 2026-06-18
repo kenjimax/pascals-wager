@@ -27,10 +27,12 @@ export function erAdd(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
   if (a.tag === "finite" && b.tag === "finite") {
     const sum = a.value + b.value;
     const carriedOverflow = a.overflow === true || b.overflow === true;
-    if (sum > SAFE_INT_LIMIT) return { tag: "finite", value: SAFE_INT_LIMIT, overflow: true };
-    if (sum < -SAFE_INT_LIMIT) return { tag: "finite", value: -SAFE_INT_LIMIT, overflow: true };
-    if (carriedOverflow) return { tag: "finite", value: sum, overflow: true };
-    return FINITE(sum);
+    // Keep the true sum rather than clamping intermediate results. Clamping mid
+    // accumulation makes the running sum order-dependent and can reverse EU
+    // rankings; flag overflow when the magnitude leaves the safe-integer range
+    // so the reporting layer can surface it, but never corrupt the value.
+    const overflowed = carriedOverflow || Math.abs(sum) > SAFE_INT_LIMIT;
+    return overflowed ? { tag: "finite", value: sum, overflow: true } : FINITE(sum);
   }
 
   if (a.tag === "pos_inf" && b.tag === "neg_inf") return INDETERMINATE;
@@ -289,8 +291,13 @@ export function lexicographicTiebreak(
   if (entries.length > 0) {
     const top = entries[0];
     for (const e of entries) {
+      // Relative tolerance on the finite remainder so this stays consistent
+      // with the exact sort above: genuinely distinct remainders (even tiny
+      // ones at small magnitudes) separate, while float noise at large
+      // magnitudes is still absorbed.
+      const remTol = 1e-9 * Math.max(Math.abs(e.finiteRemainder), Math.abs(top.finiteRemainder));
       if (Math.abs(e.infMass - top.infMass) <= 1e-15 &&
-          Math.abs(e.finiteRemainder - top.finiteRemainder) <= 1e-12) {
+          Math.abs(e.finiteRemainder - top.finiteRemainder) <= remTol) {
         topTieSet.push(e.idx);
       } else {
         break;
@@ -1264,6 +1271,12 @@ export function serializableToState(s: SerializableState): ScenarioState | null 
     }
     payoffMatrix.push(outRow);
   }
+
+  // Spec 8: a decoded matrix must be square and match the worldview count, or
+  // downstream cell access (matrix[a][s]) goes out of bounds and throws on a
+  // hand-crafted or corrupted share link.
+  const n = s.worldviews.length;
+  if (payoffMatrix.length !== n || payoffMatrix.some(r => r.length !== n)) return null;
 
   return {
     worldviews: s.worldviews.map(w => ({
