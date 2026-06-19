@@ -4,6 +4,7 @@ import { X, ChevronRight, ChevronLeft } from "lucide-react";
 import type { ScenarioState } from "@/lib/wager";
 import { FINITE, POS_INF, computeFullDecision, erToString, normalizeProbabilities } from "@/lib/wager";
 import type { DecisionResult } from "@/lib/wager";
+import { RangeSlider } from "./RangeSlider";
 
 interface Props {
   open: boolean;
@@ -315,13 +316,12 @@ function Step3Slider({ onChange, value }: { onChange: (v: number) => void; value
     <div className="mt-3 mb-1">
       <label className="flex items-center gap-2 text-[0.6875rem] font-mono text-cp-text-dim">
         <span className="whitespace-nowrap">God exists credence:</span>
-        <input
-          type="range"
-          min="1"
-          max="99"
-          step="1"
+        <RangeSlider
+          min={1}
+          max={99}
+          step={1}
           value={value}
-          onChange={e => onChange(parseInt(e.target.value, 10))}
+          onChange={onChange}
           className="flex-1"
           aria-label="God exists credence for step 3"
           aria-valuetext={`${value} percent`}

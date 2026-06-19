@@ -8,6 +8,7 @@ import { GlitchTitle } from "./GlitchTitle";
 import { DisclaimerChip } from "./DisclaimerChip";
 import { LimitsPanel } from "./LimitsPanel";
 import { PresetSelector } from "./PresetSelector";
+import { ScenarioContextBar } from "./ScenarioContextBar";
 import { WorldviewCards } from "./WorldviewCards";
 import { CredenceEditor } from "./CredenceEditor";
 import { PayoffMatrix } from "./PayoffMatrix";
@@ -24,7 +25,7 @@ import { Term } from "./Term";
 
 export function WagerApp() {
   const {
-    state, result,
+    state, result, activePresetId,
     setState,
     undo, canUndo,
     loadPreset, addWorldview, removeWorldview,
@@ -289,6 +290,8 @@ export function WagerApp() {
               </button>
             </div>
           </div>
+
+          <ScenarioContextBar activePresetId={activePresetId} utilityMode={state.utilityMode} state={state} />
 
           <div className="mt-2">
             <DisclaimerChip onClick={() => setLimitsOpen(true)} />

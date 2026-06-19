@@ -1,0 +1,79 @@
+"use client";
+import { PRESETS } from "@/lib/presets";
+import type { UtilityMode, ScenarioState } from "@/lib/wager";
+
+// What each utility mode does to the arithmetic, so switching modes explains
+// itself instead of silently changing the verdict. Each line states the rule
+// the mode applies and why the verdict can move.
+const MODE_NOTES: Record<UtilityMode, { label: string; note: string }> = {
+  finite: {
+    label: "Finite",
+    note: "Every payoff is an ordinary finite number. The verdict is a plain probability-weighted average, with no infinities in play.",
+  },
+  infinite: {
+    label: "Infinite",
+    note: "Salvation and damnation are treated as positive and negative infinity. One infinite reward swamps every finite payoff, so any positive credence in that state decides the wager, and two rival infinities collide into a tie.",
+  },
+  bounded: {
+    label: "Bounded",
+    note: "Payoffs are capped at a finite ceiling, so no single outcome can swamp the rest. The verdict tracks ordinary expected utility under that bound.",
+  },
+  lexicographic: {
+    label: "Lexicographic",
+    note: "Outcomes sit in ranked tiers. A higher tier outweighs any amount of a lower one, and ties inside a tier fall through to the next tier to break them.",
+  },
+  surreal: {
+    label: "Surreal (non-absorptive)",
+    note: "Infinities are surreal numbers that do not absorb each other: omega minus omega is zero and half of omega is less than omega. Mixed strategies stop dominating, and rival infinite rewards rank by credence rather than tying.",
+  },
+  relative: {
+    label: "Relative (ratio)",
+    note: "Payoffs are measured as ratios against the best outcome, after Bartha. Salvation is one and everything else scales toward zero, so the verdict depends on credence instead of being fixed by an absorbing infinity.",
+  },
+};
+
+interface Props {
+  activePresetId: string | null;
+  utilityMode: UtilityMode;
+  state: ScenarioState;
+}
+
+// The scenario (worldviews and payoffs) the bar describes, ignoring the rule
+// set and tie-break toggles, which are reported separately. Used to tell
+// whether the current state still matches the preset it was loaded from.
+function scenarioShape(s: { worldviews: ScenarioState["worldviews"]; payoffMatrix: ScenarioState["payoffMatrix"] }): string {
+  return JSON.stringify({ worldviews: s.worldviews, payoffMatrix: s.payoffMatrix });
+}
+
+export function ScenarioContextBar({ activePresetId, utilityMode, state }: Props) {
+  const mode = MODE_NOTES[utilityMode];
+  const shape = scenarioShape(state);
+  // Prefer the preset the scenario was loaded from (so edits read as
+  // "(modified)"). Otherwise, if the current scenario happens to match a preset
+  // exactly (a restored snapshot or a shared state), name that preset; failing
+  // both, it is a custom scenario.
+  const basis = activePresetId ? PRESETS.find(p => p.id === activePresetId) ?? null : null;
+  const preset = basis ?? PRESETS.find(p => scenarioShape(p.state) === shape) ?? null;
+  const modified = basis ? shape !== scenarioShape(basis.state) : false;
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 text-[0.6875rem] font-mono leading-snug">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-cp-text-dim uppercase tracking-wider">Scenario</span>
+        <span className="text-cp-cyan font-semibold">
+          {preset ? preset.name : "Custom scenario"}
+          {modified && <span className="text-cp-text-dim font-normal"> (modified)</span>}
+        </span>
+        {preset && <span className="text-cp-text-dim">{preset.description}</span>}
+        {!preset && (
+          <span className="text-cp-text-dim">Built by hand or loaded from a shared link.</span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+        <span className="text-cp-text-dim uppercase tracking-wider">Rule set</span>
+        <span className="text-cp-magenta font-semibold">{mode.label}</span>
+        <span className="text-cp-text-dim">{mode.note}</span>
+      </div>
+    </div>
+  );
+}

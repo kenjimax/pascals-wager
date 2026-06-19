@@ -11,6 +11,7 @@ import { saveToLocalStorage, loadFromLocalStorage, loadFromURL } from "./state";
 
 export interface UndoEntry {
   state: ScenarioState;
+  activePresetId: string | null;
   label: string;
 }
 
@@ -20,6 +21,10 @@ function cloneState(s: ScenarioState): ScenarioState {
 
 export function useWagerState() {
   const [state, setStateRaw] = useState<ScenarioState>(() => PRESETS[0].state);
+  // The preset the current scenario was last loaded from, so the UI can name
+  // the active scenario instead of a generic placeholder. Null means the state
+  // came from a share link or a manual build, i.e. a custom scenario.
+  const [activePresetId, setActivePresetId] = useState<string | null>(PRESETS[0].id);
   // Derive the decision result synchronously from state. Computing it in an
   // effect (the previous design) left result one render behind state, so on a
   // preset load that changed the worldview count, child components received a
@@ -37,11 +42,13 @@ export function useWagerState() {
     const fromURL = loadFromURL();
     if (fromURL) {
       setStateRaw(fromURL);
+      setActivePresetId(null);
       return;
     }
     const fromLS = loadFromLocalStorage();
     if (fromLS) {
       setStateRaw(fromLS);
+      setActivePresetId(null);
       return;
     }
   }, []);
@@ -51,18 +58,26 @@ export function useWagerState() {
   }, [state]);
 
   const pushUndo = useCallback((label: string) => {
-    undoStack.current.push({ state: cloneState(state), label });
+    undoStack.current.push({ state: cloneState(state), activePresetId, label });
     if (undoStack.current.length > 50) undoStack.current.shift();
-  }, [state]);
+  }, [state, activePresetId]);
 
   const setState = useCallback((next: ScenarioState, undoLabel?: string) => {
     if (undoLabel) pushUndo(undoLabel);
     setStateRaw(next);
+    // Generic loads (a framing, a restored tour snapshot, an arbitrary state)
+    // are not a preset selection. Clear the basis preset; the context bar falls
+    // back to matching the state against presets by shape, so a state that does
+    // happen to equal a preset still labels correctly.
+    setActivePresetId(null);
   }, [pushUndo]);
 
   const undo = useCallback(() => {
     const entry = undoStack.current.pop();
-    if (entry) setStateRaw(entry.state);
+    if (entry) {
+      setStateRaw(entry.state);
+      setActivePresetId(entry.activePresetId);
+    }
   }, []);
 
   const canUndo = undoStack.current.length > 0;
@@ -72,6 +87,7 @@ export function useWagerState() {
     if (preset) {
       pushUndo("load preset");
       setStateRaw(cloneState(preset.state));
+      setActivePresetId(preset.id);
     }
   }, [pushUndo]);
 
@@ -160,10 +176,11 @@ export function useWagerState() {
   const resetToPreset = useCallback(() => {
     pushUndo("reset to preset");
     setStateRaw(cloneState(PRESETS[0].state));
+    setActivePresetId(PRESETS[0].id);
   }, [pushUndo]);
 
   return {
-    state, result,
+    state, result, activePresetId,
     setState, undo, canUndo,
     loadPreset, addWorldview, removeWorldview,
     updateWorldviewWeight, toggleExclude, updatePayoffCell,
