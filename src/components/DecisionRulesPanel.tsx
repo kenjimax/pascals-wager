@@ -13,7 +13,7 @@ interface Props {
 }
 
 function RuleCard({
-  name, termKey, question, whenNote, pick, why, color, dotColor,
+  name, termKey, question, whenNote, pick, why, color, dotColor, tied,
 }: {
   name: string;
   termKey?: string;
@@ -23,6 +23,7 @@ function RuleCard({
   why: string;
   color: string;
   dotColor: string;
+  tied?: boolean;
 }) {
   return (
     <div className="cp-panel">
@@ -33,6 +34,11 @@ function RuleCard({
       <div className="cp-panel-body">
         <div className="text-[0.625rem] text-cp-text-dim italic mb-2">{question}</div>
         <div className={`font-rajdhani font-bold text-sm ${color}`}>{pick}</div>
+        {tied && (
+          <div className="text-[0.5625rem] text-cp-text-dim mt-1 font-mono">
+            These actions are tied under this rule; it does not discriminate between them, and you would pick exactly one.
+          </div>
+        )}
         <div className="text-[0.625rem] text-cp-text-dim mt-1 leading-relaxed">{why}</div>
         <div className="text-[0.5625rem] text-cp-yellow/70 mt-2 font-mono leading-relaxed">
           {whenNote}
@@ -118,6 +124,14 @@ export function DecisionRulesPanel({
     regretWhy = `Lowest maximum regret: ${maxR ? erToString(maxR) : "undefined"}.`;
   }
 
+  const euTied =
+    result.euRanking.bestIndices.length === 0 ? false :
+    result.euRanking.tiedAtInfinity
+      ? (result.lexResult ? result.lexResult.topTieSet.length > 1 : true)
+      : result.euRanking.bestIndices.length > 1;
+  const maximinTied = result.maximin.bestIndices.length > 1;
+  const regretTied = result.minimaxRegret.bestIndices.length > 1;
+
   return (
     <div className="space-y-3">
       <div className="text-[0.625rem] font-mono text-cp-text-dim">
@@ -135,6 +149,7 @@ export function DecisionRulesPanel({
           why={euWhy}
           color="text-cp-cyan"
           dotColor="bg-cp-cyan shadow-[0_0_6px_rgba(0,240,255,0.5)]"
+          tied={euTied}
         />
         <RuleCard
           name="Statewise Dominance"
@@ -155,6 +170,7 @@ export function DecisionRulesPanel({
           why={maximinWhy}
           color="text-cp-yellow"
           dotColor="bg-cp-yellow shadow-[0_0_6px_rgba(252,238,9,0.5)]"
+          tied={maximinTied}
         />
         <RuleCard
           name="Minimax Regret"
@@ -165,6 +181,7 @@ export function DecisionRulesPanel({
           why={regretWhy}
           color="text-cp-magenta"
           dotColor="bg-cp-magenta shadow-[0_0_6px_rgba(255,0,60,0.5)]"
+          tied={regretTied}
         />
       </div>
 

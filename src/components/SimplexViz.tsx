@@ -62,8 +62,10 @@ export function SimplexViz({ worldviews, probs, matrix }: Props) {
   return (
     <div className="space-y-2" ref={containerRef}>
       <div className="text-xs font-mono text-cp-text-dim">
-        {n === 2 ? "Probability line" : "Probability simplex"}: shaded by which action is EU-optimal.
-        Your current credence is marked.
+        {n === 2
+          ? `Probability line: each end represents 100% credence in one worldview (left = ${worldviews[0]?.name ?? "A"}, right = ${worldviews[1]?.name ?? "B"}); points between are mixes that sum to 100%. Each segment is colored by which action maximizes expected utility at that credence. The white mark is your current credence.`
+          : `Probability simplex: each corner represents 100% credence in one worldview (top = ${worldviews[0]?.name ?? "A"}, bottom-left = ${worldviews[1]?.name ?? "B"}, bottom-right = ${worldviews[2]?.name ?? "C"}); every interior point is a mix of credences summing to 100%. Each region is shaded by which action maximizes expected utility for credences in that region. The white dot is your current credence.`
+        }
       </div>
       <canvas
         ref={canvasRef}

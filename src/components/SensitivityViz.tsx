@@ -124,8 +124,8 @@ export function SensitivityViz({ worldviews, probs, matrix, tab }: Props) {
     <div className="space-y-4">
       <div className="text-[0.625rem] font-mono text-cp-text-dim">
         {tab === "credence"
-          ? "Each bar shows which action is EU-optimal as that worldview's probability varies (holding other odds fixed)."
-          : "Each bar shows which action is EU-optimal as a payoff value varies."
+          ? "Each bar sweeps one worldview's credence from 0% to 100%, holding the other worldviews' relative proportions fixed, and colors each segment by which action maximizes expected utility at that credence. The vertical marks (\"switch at X%\") are the break-even credences where the winning action changes."
+          : "Each bar sweeps one payoff cell's value from \u221210,000 to +10,000, holding all other payoffs and credences fixed, and colors each segment by which action is EU-optimal at that value. The break-even marks show the payoff thresholds where the verdict changes."
         }
         {" "}One-at-a-time sensitivity; joint perturbations can differ.
       </div>
