@@ -121,6 +121,46 @@ export const PRESETS: Preset[] = [
       possibilityFilteredMaximin: true,
     },
   },
+  {
+    id: "pascal_original",
+    name: "Pascal's Original 2x2",
+    description: "The simplest reconstruction: one god, two actions, infinite reward for belief if God exists. In the simplified one-infinite-payoff model, any positive credence suffices.",
+    schematic: true,
+    state: {
+      worldviews: [
+        wv("god", "God exists", 50, "exclusivist"),
+        wv("no_god", "God does not exist", 50, "secular"),
+      ],
+      payoffMatrix: [
+        [c(POS_INF), c(FINITE(-50))],
+        [c(FINITE(0)), c(FINITE(100))],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    },
+  },
+  {
+    id: "diderots_imam",
+    name: "Diderot's Imam",
+    description: "Diderot's objection: an imam can run the same wager for Islam. Two exclusivist deities, each promising infinite reward only to its own adherents, producing a tied or undefined expected-utility verdict.",
+    schematic: true,
+    state: {
+      worldviews: [
+        wv("christian_god", "Christian God", 40, "exclusivist"),
+        wv("islamic_god", "Islamic God", 40, "exclusivist"),
+        wv("secular", "Secular Life", 20, "secular"),
+      ],
+      payoffMatrix: [
+        [c(POS_INF), c(NEG_INF), c(FINITE(-100))],
+        [c(NEG_INF), c(POS_INF), c(FINITE(-100))],
+        [c(FINITE(0)), c(FINITE(0)), c(FINITE(500))],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    },
+  },
 ];
 
 export function getPresetById(id: string): Preset | undefined {

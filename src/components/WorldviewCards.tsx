@@ -56,7 +56,12 @@ export function WorldviewCards({ worldviews, onAdd, onRemove, onToggleExclude }:
               <button
                 onClick={() => onToggleExclude(i)}
                 className="text-[10px] font-mono text-cp-text-dim hover:text-cp-cyan transition-colors"
-                aria-label={wv.excluded ? `Include ${wv.name}` : `Exclude ${wv.name}`}
+                title={wv.excluded
+                  ? `Restore credence for ${wv.name}`
+                  : `Set credence to zero for ${wv.name}. Excluding assigns exactly zero probability, which differs from a tiny epsilon: at zero, infinite payoffs contribute nothing to expected utility.`}
+                aria-label={wv.excluded
+                  ? `Restore credence for ${wv.name}`
+                  : `Set credence to zero for ${wv.name}`}
               >
                 {wv.excluded ? "[INCLUDE]" : "[EXCLUDE]"}
               </button>

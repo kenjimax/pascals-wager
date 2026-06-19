@@ -323,6 +323,17 @@ body {
   color: rgba(0, 240, 255, 0.25);
 }
 
+/* Dark-theme select fix: force dark popup in Chromium */
+select.cp-input {
+  color-scheme: dark;
+  background-color: var(--cp-surface-1);
+}
+
+select.cp-input option {
+  background-color: var(--cp-surface-2);
+  color: var(--cp-text);
+}
+
 /* Progress Bars */
 .cp-progress {
   height: 3px;
@@ -379,6 +390,12 @@ body {
 ::selection {
   background: rgba(0, 240, 255, 0.25);
   color: #fff;
+}
+
+/* Tour fade-in */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Reduced Motion */

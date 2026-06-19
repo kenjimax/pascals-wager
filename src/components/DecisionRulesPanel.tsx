@@ -1,6 +1,7 @@
 "use client";
 import type { DecisionResult, Worldview } from "@/lib/wager";
 import { erToString } from "@/lib/wager";
+import { Term } from "./Term";
 
 interface Props {
   result: DecisionResult;
@@ -12,10 +13,12 @@ interface Props {
 }
 
 function RuleCard({
-  name, question, pick, why, color, dotColor,
+  name, termKey, question, whenNote, pick, why, color, dotColor,
 }: {
   name: string;
+  termKey?: string;
   question: string;
+  whenNote: string;
   pick: string;
   why: string;
   color: string;
@@ -24,13 +27,16 @@ function RuleCard({
   return (
     <div className="cp-panel">
       <div className="cp-panel-header text-[11px]">
-        <span>{name}</span>
+        <span>{termKey ? <Term termKey={termKey}>{name}</Term> : name}</span>
         <div className={`cp-dot ${dotColor}`} />
       </div>
       <div className="cp-panel-body">
         <div className="text-[10px] text-cp-text-dim italic mb-2">{question}</div>
         <div className={`font-rajdhani font-bold text-sm ${color}`}>{pick}</div>
         <div className="text-[10px] text-cp-text-dim mt-1 leading-relaxed">{why}</div>
+        <div className="text-[9px] text-cp-yellow/70 mt-2 font-mono leading-relaxed">
+          {whenNote}
+        </div>
       </div>
     </div>
   );
@@ -116,12 +122,15 @@ export function DecisionRulesPanel({
     <div className="space-y-3">
       <div className="text-[10px] font-mono text-cp-text-dim">
         These are different normative questions, not a poll. Each asks something distinct about the decision.
+        Finite utilities are defined only up to positive affine rescaling.
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <RuleCard
           name="Expected Utility"
+          termKey="expected_utility"
           question="Which choice has the best probability-weighted average outcome?"
+          whenNote="Use when you commit to probabilities and accept expected-utility maximization as the decision criterion."
           pick={euPick}
           why={euWhy}
           color="text-cp-cyan"
@@ -129,7 +138,9 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Statewise Dominance"
+          termKey="statewise_dominance"
           question="Is there a choice at least as good in every possible state and strictly better in at least one?"
+          whenNote="Use when one option is never worse. Requires no probabilities or utility comparisons."
           pick={domPick}
           why={domWhy}
           color="text-cp-green"
@@ -137,7 +148,9 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Maximin"
+          termKey="maximin"
           question={`Which choice has the least-bad worst case (${possibilityFiltered ? "over states you consider possible" : "over all listed states"})?`}
+          whenNote="Encodes a cautious attitude: prioritize avoiding the worst outcome. Does not require probabilities but does encode a distinct value judgment about caution."
           pick={maximinPick}
           why={maximinWhy}
           color="text-cp-yellow"
@@ -145,7 +158,9 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Minimax Regret"
+          termKey="minimax_regret"
           question="Which choice minimizes your largest possible regret?"
+          whenNote="Encodes a distinct attitude toward regret: minimize how much you could wish you had chosen differently. Does not require probabilities."
           pick={regretPick}
           why={regretWhy}
           color="text-cp-magenta"
@@ -162,7 +177,7 @@ export function DecisionRulesPanel({
             className="accent-[#00f0ff]"
           />
           <span className="text-cp-text-dim">
-            Lexicographic tiebreak
+            <Term termKey="lexicographic_tiebreak">Lexicographic tiebreak</Term>
             <span className="text-cp-yellow ml-1">(optional convention, not standard EU)</span>
           </span>
         </label>
@@ -174,7 +189,7 @@ export function DecisionRulesPanel({
             className="accent-[#00f0ff]"
           />
           <span className="text-cp-text-dim">
-            Possibility-filtered maximin (only states with positive credence)
+            <Term termKey="possibility_filtered">Possibility-filtered</Term> maximin (ignore worlds you have ruled out)
           </span>
         </label>
       </div>
