@@ -242,9 +242,12 @@ export function WagerApp() {
       {/* Divine imagery rails */}
       <DivineRail />
 
-      {/* Header / HUD bar */}
-      <header className="sticky top-0 z-40 bg-surface-0/90 backdrop-blur border-b border-cp-cyan/10">
-        <div className="max-w-7xl mx-auto px-4 py-3">
+      {/* Header / HUD bar. The bar background lives on the centered inner
+          container, not the full-width header, so the divine rails in the side
+          gutters show from the very top of the viewport instead of being
+          covered by the header band. */}
+      <header className="sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-3 bg-surface-0/90 backdrop-blur border-b border-cp-cyan/10">
           <div className="flex flex-wrap items-center gap-3">
             <GlitchTitle text="PASCAL'S WAGER" />
 
