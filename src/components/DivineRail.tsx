@@ -46,14 +46,11 @@ function getCurrentImageIndex(count: number): number {
   return Math.floor(minutesSinceMidnight / 5) % count;
 }
 
-function getBasePath(): string {
-  if (typeof window === "undefined") return "";
-  const meta = document.querySelector('meta[name="x-base-path"]');
-  if (meta) return meta.getAttribute("content") || "";
-  const path = window.location.pathname;
-  if (path.startsWith("/pascals-wager")) return "/pascals-wager";
-  return "";
-}
+// Baked in at build time by next.config (env.NEXT_PUBLIC_BASE_PATH), so the
+// static-export HTML and the hydrated client always agree on the asset prefix.
+// Raw <img> src values are not rewritten by Next's basePath, so we prefix them
+// here. Inlined as a literal at build, this needs no runtime detection.
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 
 function Rail({
   image,
@@ -64,7 +61,6 @@ function Rail({
   side: "left" | "right";
   opacity?: number;
 }) {
-  const basePath = getBasePath();
   const prefersReducedMotion =
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
@@ -79,7 +75,7 @@ function Rail({
       <div className="flex-1 relative overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src={`${basePath}${image.src}`}
+          src={`${BASE_PATH}${image.src}`}
           alt=""
           className={`w-full h-full object-cover ${!prefersReducedMotion ? "transition-opacity duration-1000" : ""}`}
           style={{ objectPosition: image.position }}
