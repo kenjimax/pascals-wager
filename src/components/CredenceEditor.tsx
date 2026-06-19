@@ -1,6 +1,7 @@
 "use client";
 import type { Worldview } from "@/lib/wager";
 import { normalizeProbabilities } from "@/lib/wager";
+import { RangeSlider } from "./RangeSlider";
 
 interface Props {
   worldviews: Worldview[];
@@ -40,15 +41,15 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="0.1"
+              <RangeSlider
+                min={0}
+                max={100}
+                step={0.1}
                 value={wv.rawWeight}
-                onChange={e => onUpdateWeight(i, parseFloat(e.target.value))}
+                onChange={v => onUpdateWeight(i, v)}
                 className="flex-1"
                 aria-label={`Credence weight for ${wv.name}`}
+                aria-valuetext={`${wv.rawWeight.toFixed(1)} weight`}
               />
               <input
                 type="number"

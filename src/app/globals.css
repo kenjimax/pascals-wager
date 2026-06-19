@@ -427,44 +427,54 @@ input[type="range"] {
   appearance: none;
   background: transparent;
   cursor: pointer;
-  height: 24px;
-  touch-action: none;
+  height: 28px;
+  /* Allow vertical touch-scroll to pass through but let the slider own
+     horizontal drags. `none` here breaks dragging in some WebKit builds. */
+  touch-action: pan-y;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
-  height: 3px;
-  background: rgba(0, 240, 255, 0.15);
+  height: 6px;
+  background: rgba(0, 240, 255, 0.2);
+  border: 1px solid rgba(0, 240, 255, 0.25);
   border-radius: 0;
-  pointer-events: none;
+  /* No pointer-events override: the native track must receive events or the
+     thumb cannot be dragged across it (notably in Safari/WebKit). */
 }
 
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   background: var(--cp-cyan);
   border: none;
   border-radius: 0;
-  margin-top: -8px;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+  /* Center the 22px thumb on the 6px track: -(22-6)/2 - 1px border = -9px. */
+  margin-top: -9px;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.7);
   transform: rotate(45deg);
-  pointer-events: auto;
+  cursor: grab;
+}
+
+input[type="range"]:active::-webkit-slider-thumb {
+  cursor: grabbing;
 }
 
 input[type="range"]::-moz-range-track {
-  height: 3px;
-  background: rgba(0, 240, 255, 0.15);
-  border: none;
+  height: 6px;
+  background: rgba(0, 240, 255, 0.2);
+  border: 1px solid rgba(0, 240, 255, 0.25);
 }
 
 input[type="range"]::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   background: var(--cp-cyan);
   border: none;
   border-radius: 0;
-  box-shadow: 0 0 6px rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.7);
   transform: rotate(45deg);
+  cursor: grab;
 }
 
 input[type="range"]:focus-visible::-webkit-slider-thumb {
