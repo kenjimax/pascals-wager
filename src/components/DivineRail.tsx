@@ -9,6 +9,10 @@ interface DivineImage {
   date: string;
 }
 
+// Only vertically composed images belong in the tall rail. Landscape works (the
+// Sistine ceiling) crop to an unreadable dark center sliver here, so they are
+// kept out. The Ancient of Days figure and Dore's Empyrean both fill the rail
+// and read clearly wherever the gutter is visible.
 const LEFT_IMAGES: DivineImage[] = [
   {
     src: "/divine/ancient-of-days.jpg",
@@ -18,20 +22,20 @@ const LEFT_IMAGES: DivineImage[] = [
     date: "1794",
   },
   {
-    src: "/divine/god-sistine.png",
+    src: "/divine/dore-paradiso.jpg",
     position: "center",
-    artist: "Michelangelo",
-    title: "God (Sistine Chapel)",
-    date: "c. 1512",
+    artist: "Dore",
+    title: "Paradiso, the Empyrean",
+    date: "1868",
   },
 ];
 
 const RIGHT_IMAGE: DivineImage = {
-  src: "/divine/dore-paradiso.jpg",
+  src: "/divine/creation-of-adam.jpg",
   position: "center",
-  artist: "Dore",
-  title: "Paradiso",
-  date: "1868",
+  artist: "Michelangelo",
+  title: "The Creation of Adam",
+  date: "c. 1512",
 };
 
 const ROTATION_MS = 5 * 60 * 1000;
@@ -122,11 +126,14 @@ function Rail({
 }
 
 export function DivineRail() {
-  const [imageIndex, setImageIndex] = useState(() =>
-    getCurrentImageIndex(LEFT_IMAGES.length)
-  );
+  // Deterministic initial index so the static-export HTML and the first client
+  // render agree (a time-based initial value would mismatch and trip a
+  // hydration error). The real, time-rotated index is set immediately after
+  // mount in the effect below.
+  const [imageIndex, setImageIndex] = useState(0);
 
   useEffect(() => {
+    setImageIndex(getCurrentImageIndex(LEFT_IMAGES.length));
     const now = new Date();
     const minutesIntoSlot = now.getMinutes() % 5;
     const msUntilNext =
