@@ -1,8 +1,9 @@
 "use client";
 import { useState, useCallback } from "react";
-import { Share2, RotateCcw, Undo2, ChevronDown, ChevronRight } from "lucide-react";
+import { Share2, RotateCcw, Undo2, ChevronDown, ChevronRight, BookOpen } from "lucide-react";
 import { useWagerState } from "@/lib/hooks";
 import { generateShareURL } from "@/lib/state";
+import type { ScenarioState } from "@/lib/wager";
 import { GlitchTitle } from "./GlitchTitle";
 import { DisclaimerChip } from "./DisclaimerChip";
 import { LimitsPanel } from "./LimitsPanel";
@@ -16,10 +17,15 @@ import { HeatmapViz } from "./HeatmapViz";
 import { EUBarsViz } from "./EUBarsViz";
 import { SensitivityViz } from "./SensitivityViz";
 import { SimplexViz } from "./SimplexViz";
+import { GuidedTour, useTourState } from "./GuidedTour";
+import { ThreeFramingsPanel } from "./ThreeFramingsPanel";
+import { DivineRail } from "./DivineRail";
+import { Term } from "./Term";
 
 export function WagerApp() {
   const {
     state, result,
+    setState,
     undo, canUndo,
     loadPreset, addWorldview, removeWorldview,
     updateWorldviewWeight, toggleExclude, updatePayoffCell,
@@ -33,6 +39,8 @@ export function WagerApp() {
   const [mobileTab, setMobileTab] = useState<"inputs" | "result" | "detail">("inputs");
   const [sensTab, setSensTab] = useState<"credence" | "payoff">("credence");
 
+  const { tourOpen, openTour, closeTour, tourChecked } = useTourState();
+
   const handleShare = useCallback(() => {
     const url = generateShareURL(state);
     navigator.clipboard.writeText(url).then(() => {
@@ -44,6 +52,14 @@ export function WagerApp() {
     });
   }, [state]);
 
+  const handleLoadFraming = useCallback((framingState: ScenarioState) => {
+    setState(JSON.parse(JSON.stringify(framingState)), "load framing");
+  }, [setState]);
+
+  const handleTourRestore = useCallback((snapshot: ScenarioState) => {
+    setState(JSON.parse(JSON.stringify(snapshot)));
+  }, [setState]);
+
   const modeOptions: { value: typeof state.utilityMode; label: string }[] = [
     { value: "finite", label: "Finite" },
     { value: "infinite", label: "Infinite" },
@@ -51,7 +67,6 @@ export function WagerApp() {
     { value: "lexicographic", label: "Lexicographic" },
   ];
 
-  // Mobile tab switcher
   const MobileNav = () => (
     <div className="md:hidden flex border-b border-cp-cyan/10 mb-4">
       {(["inputs", "result", "detail"] as const).map(tab => (
@@ -87,7 +102,7 @@ export function WagerApp() {
       {/* Credences */}
       <div className="cp-panel">
         <div className="cp-panel-header">
-          <span>Credences</span>
+          <span><Term termKey="credence">Credences</Term></span>
         </div>
         <div className="cp-panel-body">
           <CredenceEditor
@@ -97,6 +112,9 @@ export function WagerApp() {
           />
         </div>
       </div>
+
+      {/* Three Framings */}
+      <ThreeFramingsPanel onLoadFraming={handleLoadFraming} />
 
       {/* Advanced: Payoff Matrix */}
       <div className="cp-panel">
@@ -108,7 +126,7 @@ export function WagerApp() {
         >
           <span className="flex items-center gap-2">
             {matrixExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-            Advanced: Edit Full Payoff Matrix
+            Advanced: edit full payoff matrix
           </span>
         </button>
         {matrixExpanded && (
@@ -147,7 +165,7 @@ export function WagerApp() {
       <div className="space-y-4">
         {/* EU Bars */}
         <div className="cp-panel">
-          <div className="cp-panel-header"><span>Expected Utility Comparison</span></div>
+          <div className="cp-panel-header"><span><Term termKey="expected_utility">Expected utility</Term> comparison</span></div>
           <div className="cp-panel-body">
             <EUBarsViz euRanking={result.euRanking} worldviews={state.worldviews} />
           </div>
@@ -155,7 +173,7 @@ export function WagerApp() {
 
         {/* Heatmap */}
         <div className="cp-panel">
-          <div className="cp-panel-header"><span>Payoff Matrix Heatmap</span></div>
+          <div className="cp-panel-header"><span>Payoff matrix heatmap</span></div>
           <div className="cp-panel-body">
             <HeatmapViz worldviews={state.worldviews} matrix={state.payoffMatrix} />
           </div>
@@ -164,7 +182,7 @@ export function WagerApp() {
         {/* Sensitivity */}
         <div className="cp-panel">
           <div className="cp-panel-header">
-            <span>Sensitivity Analysis</span>
+            <span>Sensitivity analysis</span>
             <div className="flex gap-1">
               <button
                 onClick={() => setSensTab("credence")}
@@ -197,7 +215,7 @@ export function WagerApp() {
         {/* Simplex */}
         {(state.worldviews.length === 2 || state.worldviews.length === 3) && (
           <div className="cp-panel">
-            <div className="cp-panel-header"><span>Probability {state.worldviews.length === 2 ? "Line" : "Simplex"}</span></div>
+            <div className="cp-panel-header"><span>Probability {state.worldviews.length === 2 ? "line" : "simplex"}</span></div>
             <div className="cp-panel-body">
               <SimplexViz
                 worldviews={state.worldviews}
@@ -218,6 +236,9 @@ export function WagerApp() {
       <div className="scanline-overlay" aria-hidden="true" />
       <div className="scanline-bar" aria-hidden="true" />
 
+      {/* Divine imagery rails */}
+      <DivineRail />
+
       {/* Header / HUD bar */}
       <header className="sticky top-0 z-40 bg-surface-0/90 backdrop-blur border-b border-cp-cyan/10">
         <div className="max-w-7xl mx-auto px-4 py-3">
@@ -225,6 +246,15 @@ export function WagerApp() {
             <GlitchTitle text="PASCAL'S WAGER" />
 
             <div className="flex flex-wrap items-center gap-2 ml-auto">
+              <button
+                onClick={openTour}
+                className="cp-btn text-xs flex items-center gap-1"
+                aria-label="Guided tour"
+              >
+                <BookOpen size={12} />
+                <span className="hidden sm:inline">Tour</span>
+              </button>
+
               <PresetSelector onSelect={loadPreset} />
 
               <select
@@ -288,6 +318,15 @@ export function WagerApp() {
       </main>
 
       <LimitsPanel open={limitsOpen} onClose={() => setLimitsOpen(false)} />
+
+      {tourChecked && (
+        <GuidedTour
+          open={tourOpen}
+          onClose={closeTour}
+          currentState={state}
+          onRestoreState={handleTourRestore}
+        />
+      )}
     </div>
   );
 }
