@@ -910,6 +910,26 @@ export function computeCredenceSensitivity(
   const n = matrix.length;
   const nStates = probs.length;
 
+  // Guard against dimensionally inconsistent inputs (a malformed decoded share
+  // link, or transiently mismatched props): each action row must hold exactly
+  // one cell per state, and varyIdx must index a real state. The row count
+  // (actions) may differ from the state count, so do not require squareness.
+  // Bail to a safe empty result rather than indexing out of bounds.
+  if (
+    varyIdx < 0 || varyIdx >= nStates ||
+    matrix.some((row) => row.length !== nStates || row.some((c) => !c || !c.value))
+  ) {
+    return {
+      parameter: worldviews[varyIdx]?.name ?? `Worldview ${varyIdx}`,
+      parameterIndex: varyIdx,
+      intervals: [],
+      currentValue: probs[varyIdx] ?? 0,
+      breakpoints: [],
+      discontinuityAtZero: false,
+      renormalizationUndefined: true,
+    };
+  }
+
   const currentP = probs[varyIdx];
   const otherSum = 1 - currentP;
   const parameter = worldviews[varyIdx]?.name ?? `Worldview ${varyIdx}`;
@@ -1041,6 +1061,26 @@ export function computePayoffSensitivity(
   rangeMax: number
 ): SensitivityResult {
   const n = matrix.length;
+
+  // Same dimensional guard as the credence path: each row must hold one cell
+  // per state and the indices must be in range. Rows (actions) need not equal
+  // states, so do not require squareness. Bail safely rather than indexing a
+  // missing cell.
+  if (
+    actionIdx < 0 || actionIdx >= n ||
+    stateIdx < 0 || stateIdx >= probs.length ||
+    matrix.some((row) => row.length !== probs.length || row.some((c) => !c || !c.value))
+  ) {
+    return {
+      parameter: `Payoff(${worldviews[actionIdx]?.name ?? actionIdx}, ${worldviews[stateIdx]?.name ?? stateIdx})`,
+      parameterIndex: stateIdx,
+      intervals: [],
+      currentValue: 0,
+      breakpoints: [],
+      discontinuityAtZero: false,
+    };
+  }
+
   const p = probs[stateIdx];
   const parameter = `Payoff(${worldviews[actionIdx]?.name}, ${worldviews[stateIdx]?.name})`;
   const cur = matrix[actionIdx][stateIdx].value;

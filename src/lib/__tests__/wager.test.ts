@@ -847,6 +847,25 @@ describe("Credence Sensitivity", () => {
     expect(sens.currentValue).toBeCloseTo(0.5);
   });
 
+  it("does not throw when probs and matrix dimensions disagree (stale-prop guard)", () => {
+    // Reproduces the preset-transition crash: a length-3 probability vector
+    // arriving alongside a 2x2 matrix. Must bail to an empty result, not index
+    // matrix[a][2] and read .value of undefined.
+    const worldviews = [wv("a", "A", 50), wv("b", "B", 50)];
+    const staleProbs = [0.4, 0.4, 0.2];
+    const matrix = [
+      [cell(FINITE(1000)), cell(FINITE(-200))],
+      [cell(FINITE(-300)), cell(FINITE(800))],
+    ];
+    expect(() => computeCredenceSensitivity(0, staleProbs, matrix, worldviews)).not.toThrow();
+    const sens = computeCredenceSensitivity(0, staleProbs, matrix, worldviews);
+    expect(sens.intervals).toEqual([]);
+    expect(() =>
+      computePayoffSensitivity(0, 0, staleProbs, matrix, worldviews, -100, 100),
+    ).not.toThrow();
+    expect(computePayoffSensitivity(0, 0, staleProbs, matrix, worldviews, -100, 100).intervals).toEqual([]);
+  });
+
   it("detects discontinuity at zero when infinite payoffs present", () => {
     const worldviews = [wv("a", "A", 10), wv("b", "B", 90)];
     const probs = [0.1, 0.9];

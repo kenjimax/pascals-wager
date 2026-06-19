@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import {
   type ScenarioState, type Worldview, type PayoffCell, type ExtendedReal,
   type TheologyTemplate,
@@ -20,7 +20,13 @@ function cloneState(s: ScenarioState): ScenarioState {
 
 export function useWagerState() {
   const [state, setStateRaw] = useState<ScenarioState>(() => PRESETS[0].state);
-  const [result, setResult] = useState<DecisionResult | null>(null);
+  // Derive the decision result synchronously from state. Computing it in an
+  // effect (the previous design) left result one render behind state, so on a
+  // preset load that changed the worldview count, child components received a
+  // new payoff matrix alongside a stale, differently-sized probability vector
+  // and indexed out of bounds. useMemo keeps result and state consistent in the
+  // same render, which removes that whole class of stale-prop crashes.
+  const result = useMemo<DecisionResult>(() => computeFullDecision(state), [state]);
   const undoStack = useRef<UndoEntry[]>([]);
   const initialized = useRef(false);
 
@@ -41,8 +47,6 @@ export function useWagerState() {
   }, []);
 
   useEffect(() => {
-    const r = computeFullDecision(state);
-    setResult(r);
     saveToLocalStorage(state);
   }, [state]);
 
