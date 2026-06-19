@@ -113,7 +113,10 @@ function drawLine(
   const y0 = 10;
 
   for (let i = 0; i < steps; i++) {
-    const p0 = i / (steps - 1);
+    // The left edge is 100 percent credence in worldviews[0] and the right edge
+    // is 100 percent in worldviews[1], matching the end labels below and the
+    // caption. p0 is the credence in worldviews[0] at this x.
+    const p0 = 1 - i / (steps - 1);
     const p = [p0, 1 - p0];
     const opt = getOptimalAction(p, matrix);
     ctx.fillStyle = COLORS[opt % COLORS.length] + "90";
@@ -123,7 +126,9 @@ function drawLine(
   ctx.strokeStyle = "rgba(0,240,255,0.25)";
   ctx.strokeRect(0.5, y0 + 0.5, w - 1, barH);
 
-  const xCurrent = probs[0] * w;
+  // Place the marker so that high worldviews[0] credence sits at the left edge,
+  // consistent with the shading direction and the end labels.
+  const xCurrent = (1 - probs[0]) * w;
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(xCurrent - 1, y0 - 3, 2, barH + 6);
 
