@@ -26,15 +26,15 @@ function RuleCard({
 }) {
   return (
     <div className="cp-panel">
-      <div className="cp-panel-header text-[11px]">
+      <div className="cp-panel-header text-[0.6875rem]">
         <span>{termKey ? <Term termKey={termKey}>{name}</Term> : name}</span>
         <div className={`cp-dot ${dotColor}`} />
       </div>
       <div className="cp-panel-body">
-        <div className="text-[10px] text-cp-text-dim italic mb-2">{question}</div>
+        <div className="text-[0.625rem] text-cp-text-dim italic mb-2">{question}</div>
         <div className={`font-rajdhani font-bold text-sm ${color}`}>{pick}</div>
-        <div className="text-[10px] text-cp-text-dim mt-1 leading-relaxed">{why}</div>
-        <div className="text-[9px] text-cp-yellow/70 mt-2 font-mono leading-relaxed">
+        <div className="text-[0.625rem] text-cp-text-dim mt-1 leading-relaxed">{why}</div>
+        <div className="text-[0.5625rem] text-cp-yellow/70 mt-2 font-mono leading-relaxed">
           {whenNote}
         </div>
       </div>
@@ -120,7 +120,7 @@ export function DecisionRulesPanel({
 
   return (
     <div className="space-y-3">
-      <div className="text-[10px] font-mono text-cp-text-dim">
+      <div className="text-[0.625rem] font-mono text-cp-text-dim">
         These are different normative questions, not a poll. Each asks something distinct about the decision.
         Finite utilities are defined only up to positive affine rescaling.
       </div>
@@ -168,7 +168,7 @@ export function DecisionRulesPanel({
         />
       </div>
 
-      <div className="flex flex-wrap gap-3 text-[10px]">
+      <div className="flex flex-wrap gap-3 text-[0.625rem]">
         <label className="flex items-center gap-2 cursor-pointer">
           <input
             type="checkbox"

@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronRight, ChevronLeft } from "lucide-react";
 import type { ScenarioState } from "@/lib/wager";
-import { FINITE, POS_INF, computeFullDecision, erToString } from "@/lib/wager";
+import { FINITE, POS_INF, computeFullDecision, erToString, normalizeProbabilities } from "@/lib/wager";
 import type { DecisionResult } from "@/lib/wager";
 
 interface Props {
@@ -99,9 +99,10 @@ const STEP_STATES: ScenarioState[] = [
 
 function MiniMatrix({ state }: { state: ScenarioState }) {
   const result = computeFullDecision(state);
+  const probs = normalizeProbabilities(state.worldviews);
   return (
     <div className="mt-3 overflow-x-auto">
-      <table className="w-full text-[11px] font-mono border-collapse">
+      <table className="w-full text-[0.6875rem] font-mono border-collapse">
         <thead>
           <tr>
             <th className="p-1.5 text-left text-cp-text-dim border border-cp-cyan/10 bg-surface-1/50" />
@@ -113,6 +114,17 @@ function MiniMatrix({ state }: { state: ScenarioState }) {
             <th className="p-1.5 text-center text-cp-yellow border border-cp-cyan/10 bg-surface-1/50 font-normal">
               EU
             </th>
+          </tr>
+          <tr>
+            <td className="p-1 text-[0.625rem] text-cp-text-dim border border-cp-cyan/10 bg-surface-1/30 italic">
+              P
+            </td>
+            {state.worldviews.map((_, i) => (
+              <td key={i} className="p-1 text-center text-[0.625rem] text-cp-text-dim border border-cp-cyan/10 bg-surface-1/30">
+                {(probs[i] * 100).toFixed(1)}%
+              </td>
+            ))}
+            <td className="border border-cp-cyan/10 bg-surface-1/30" />
           </tr>
         </thead>
         <tbody>
@@ -162,8 +174,8 @@ function HeadlineBox({ result }: { result: DecisionResult }) {
     text = h.reason;
   }
   return (
-    <div className="mt-2 p-2 border border-cp-cyan/15 bg-cp-cyan/5 text-[11px] text-cp-text">
-      <span className="text-cp-cyan font-semibold font-rajdhani uppercase tracking-wider text-[10px] mr-2">
+    <div className="mt-2 p-2 border border-cp-cyan/15 bg-cp-cyan/5 text-[0.6875rem] text-cp-text">
+      <span className="text-cp-cyan font-semibold font-rajdhani uppercase tracking-wider text-[0.625rem] mr-2">
         Verdict:
       </span>
       {text}
@@ -203,8 +215,9 @@ const STEP_CONTENT: { title: string; body: React.ReactNode }[] = [
           believing becomes worse in the state where God does not exist.
         </p>
         <p className="text-cp-text-dim">
-          The expected-utility argument in the next step would survive that cost. The contrast is the point:
-          the superdominance version is fragile in a way the expected-utility version is not.
+          The expected-utility argument (the one that uses an infinite payoff) would survive that cost,
+          because any positive probability times infinity is still infinity. The contrast is the point:
+          dominance is fragile in a way the expected-utility version is not.
         </p>
       </>
     ),
@@ -266,7 +279,8 @@ const STEP_CONTENT: { title: string; body: React.ReactNode }[] = [
           sensitivity analysis to see exactly where each conclusion breaks.
         </p>
         <p className="text-cp-text-dim">
-          This is a thinking instrument about one prudential argument, not advice about what to believe.
+          Adjust the worldviews, payoffs, and credences to see exactly where each conclusion holds and
+          where it breaks.
         </p>
       </>
     ),
@@ -296,8 +310,31 @@ export function useTourState() {
   return { tourOpen: open, openTour, closeTour, tourChecked: checked };
 }
 
+function Step3Slider({ onChange, value }: { onChange: (v: number) => void; value: number }) {
+  return (
+    <div className="mt-3 mb-1">
+      <label className="flex items-center gap-2 text-[0.6875rem] font-mono text-cp-text-dim">
+        <span className="whitespace-nowrap">God exists credence:</span>
+        <input
+          type="range"
+          min="1"
+          max="99"
+          step="1"
+          value={value}
+          onChange={e => onChange(parseInt(e.target.value, 10))}
+          className="flex-1"
+          aria-label="God exists credence for step 3"
+          aria-valuetext={`${value} percent`}
+        />
+        <span className="text-cp-cyan w-10 text-right">{value}%</span>
+      </label>
+    </div>
+  );
+}
+
 export function GuidedTour({ open, onClose, currentState, onRestoreState }: Props) {
   const [step, setStep] = useState(0);
+  const [step3Credence, setStep3Credence] = useState(1);
   const snapshotRef = useRef<ScenarioState | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -307,6 +344,7 @@ export function GuidedTour({ open, onClose, currentState, onRestoreState }: Prop
       snapshotRef.current = JSON.parse(JSON.stringify(currentState));
       previousFocusRef.current = document.activeElement as HTMLElement;
       setStep(0);
+      setStep3Credence(1);
     }
   }, [open, currentState]);
 
@@ -367,7 +405,16 @@ export function GuidedTour({ open, onClose, currentState, onRestoreState }: Prop
 
   const isLast = step === STEP_CONTENT.length - 1;
   const content = STEP_CONTENT[step];
-  const stepState = STEP_STATES[step];
+
+  const stepState = step === 2
+    ? {
+        ...STEP_STATES[2],
+        worldviews: [
+          wv("god_exists", "God exists", step3Credence, "exclusivist"),
+          wv("god_absent", "God does not exist", 100 - step3Credence, "secular"),
+        ],
+      }
+    : STEP_STATES[step];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -385,7 +432,7 @@ export function GuidedTour({ open, onClose, currentState, onRestoreState }: Prop
         {/* Header */}
         <div className="cp-panel-header">
           <span className="flex items-center gap-2">
-            <span className="text-cp-text-dim text-[10px] font-mono">
+            <span className="text-cp-text-dim text-[0.625rem] font-mono">
               {step + 1}/{STEP_CONTENT.length}
             </span>
             {content.title}
@@ -404,6 +451,10 @@ export function GuidedTour({ open, onClose, currentState, onRestoreState }: Prop
           <div className="text-sm text-cp-text leading-relaxed">
             {content.body}
           </div>
+
+          {step === 2 && (
+            <Step3Slider value={step3Credence} onChange={setStep3Credence} />
+          )}
 
           {step < STEP_CONTENT.length - 1 && (
             <MiniMatrix state={stepState} />

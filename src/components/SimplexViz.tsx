@@ -70,7 +70,7 @@ export function SimplexViz({ worldviews, probs, matrix }: Props) {
         className="border border-cp-cyan/10"
         aria-label={`${n === 2 ? "Probability line" : "Probability simplex"} visualization`}
       />
-      <div className="flex flex-wrap gap-3 text-[11px]">
+      <div className="flex flex-wrap gap-3 text-[0.6875rem]">
         {worldviews.map((wv, i) => (
           <span key={wv.id} className="flex items-center gap-1" style={{ color: COLORS[i % COLORS.length] }}>
             <span

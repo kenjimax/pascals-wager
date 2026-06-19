@@ -25,13 +25,16 @@ export function WorldviewCards({ worldviews, onAdd, onRemove, onToggleExclude }:
 
   const handleAdd = () => {
     const name = newName.trim();
-    if (!name) return;
-    onAdd(name, newTemplate);
+    const fallback = TEMPLATE_OPTIONS.find(t => t.value === newTemplate)?.label ?? newTemplate;
+    onAdd(name || fallback, newTemplate);
     setNewName("");
   };
 
   return (
     <div className="space-y-3">
+      <div className="text-[0.625rem] font-mono text-cp-text-dim mb-1">
+        A worldview is a possible state of the world (a god, or a secular reality). Each one becomes both a column you might be in and an action you might wager on; adding one expands the decision matrix.
+      </div>
       <div className="flex flex-wrap gap-2">
         {worldviews.map((wv, i) => (
           <div
@@ -48,14 +51,14 @@ export function WorldviewCards({ worldviews, onAdd, onRemove, onToggleExclude }:
                 className={`cp-dot ${wv.excluded ? "bg-[#3a3a5a]" : "bg-cp-cyan shadow-[0_0_6px_rgba(0,240,255,0.5)]"}`}
               />
               <span className="font-rajdhani font-semibold text-sm">{wv.name}</span>
-              <span className="cp-tag text-[9px] ml-1">
+              <span className="cp-tag text-[0.5625rem] ml-1">
                 {TEMPLATE_OPTIONS.find(t => t.value === wv.template)?.label ?? wv.template}
               </span>
             </div>
             <div className="flex gap-1 mt-1">
               <button
                 onClick={() => onToggleExclude(i)}
-                className="text-[10px] font-mono text-cp-text-dim hover:text-cp-cyan transition-colors"
+                className="text-[0.625rem] font-mono text-cp-text-dim hover:text-cp-cyan transition-colors"
                 title={wv.excluded
                   ? `Restore credence for ${wv.name}`
                   : `Set credence to zero for ${wv.name}. Excluding assigns exactly zero probability, which differs from a tiny epsilon: at zero, infinite payoffs contribute nothing to expected utility.`}
@@ -68,7 +71,7 @@ export function WorldviewCards({ worldviews, onAdd, onRemove, onToggleExclude }:
               {worldviews.length > 2 && (
                 <button
                   onClick={() => onRemove(i)}
-                  className="text-[10px] font-mono text-cp-text-dim hover:text-cp-magenta transition-colors"
+                  className="text-[0.625rem] font-mono text-cp-text-dim hover:text-cp-magenta transition-colors"
                   aria-label={`Remove ${wv.name}`}
                 >
                   <X size={10} />

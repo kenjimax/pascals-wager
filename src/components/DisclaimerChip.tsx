@@ -8,10 +8,10 @@ export function DisclaimerChip({ onClick }: Props) {
   return (
     <button
       onClick={onClick}
-      className="cp-tag text-[10px] md:text-[11px] cursor-pointer hover:border-cp-cyan/30 transition-colors"
+      className="cp-tag text-[0.625rem] md:text-[0.6875rem] cursor-pointer hover:border-cp-cyan/30 transition-colors"
       aria-label="Open model limitations panel"
     >
-      A model of one prudential argument, not advice on what to believe.
+      About this model and its limits
     </button>
   );
 }

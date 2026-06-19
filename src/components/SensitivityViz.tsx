@@ -23,7 +23,7 @@ const ACTION_COLORS = [
 function SensBar({ result, worldviews }: { result: SensitivityResult; worldviews: Worldview[] }) {
   if (result.intervals.length === 0) {
     return (
-      <div className="text-[10px] text-cp-text-dim font-mono">
+      <div className="text-[0.625rem] text-cp-text-dim font-mono">
         No finite sensitivity data (infinite payoffs in this dimension).
       </div>
     );
@@ -34,7 +34,7 @@ function SensBar({ result, worldviews }: { result: SensitivityResult; worldviews
 
   return (
     <div className="space-y-1">
-      <div className="text-[11px] font-rajdhani font-semibold">{result.parameter}</div>
+      <div className="text-[0.6875rem] font-rajdhani font-semibold">{result.parameter}</div>
 
       <div className="relative h-6 border border-cp-cyan/10 overflow-hidden">
         {result.intervals.map((iv, i) => {
@@ -58,7 +58,7 @@ function SensBar({ result, worldviews }: { result: SensitivityResult; worldviews
         />
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 text-[9px]">
+      <div className="flex flex-wrap items-center gap-2 text-[0.5625rem]">
         {result.breakpoints.length > 0 && (
           <span className="font-mono text-cp-text-dim/80">
             <Term termKey="break_even_interval">break-even</Term>:
@@ -77,7 +77,7 @@ function SensBar({ result, worldviews }: { result: SensitivityResult; worldviews
       </div>
 
       {/* Legend */}
-      <div className="flex flex-wrap gap-2 text-[9px]">
+      <div className="flex flex-wrap gap-2 text-[0.5625rem]">
         {Array.from(new Set(result.intervals.map(iv => iv.optimalAction))).map(idx => {
           const c = ACTION_COLORS[idx % ACTION_COLORS.length];
           return (
@@ -122,7 +122,7 @@ export function SensitivityViz({ worldviews, probs, matrix, tab }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="text-[10px] font-mono text-cp-text-dim">
+      <div className="text-[0.625rem] font-mono text-cp-text-dim">
         {tab === "credence"
           ? "Each bar shows which action is EU-optimal as that worldview's probability varies (holding other odds fixed)."
           : "Each bar shows which action is EU-optimal as a payoff value varies."

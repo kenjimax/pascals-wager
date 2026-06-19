@@ -31,11 +31,11 @@ const LEFT_IMAGES: DivineImage[] = [
 ];
 
 const RIGHT_IMAGE: DivineImage = {
-  src: "/divine/creation-of-adam.jpg",
+  src: "/divine/dore-paradiso.jpg",
   position: "center",
-  artist: "Michelangelo",
-  title: "The Creation of Adam",
-  date: "c. 1512",
+  artist: "Dore",
+  title: "Paradiso, the Empyrean",
+  date: "1868",
 };
 
 const ROTATION_MS = 5 * 60 * 1000;
@@ -109,7 +109,7 @@ function Rail({
           background: "linear-gradient(0deg, rgba(0,240,255,0.03), transparent)",
         }}
       >
-        <span className="font-mono text-[9px] text-[rgba(0,240,255,0.35)] tracking-wider">
+        <span className="font-mono text-[0.5625rem] text-[rgba(0,240,255,0.35)] tracking-wider">
           {image.artist}, {image.title}, {image.date}
         </span>
       </div>
