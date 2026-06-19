@@ -124,8 +124,12 @@ export function DecisionRulesPanel({
     regretWhy = `Lowest maximum regret: ${maxR ? erToString(maxR) : "undefined"}.`;
   }
 
+  // Expected utility needs a probability distribution. When none is assigned
+  // (every credence zero or excluded) the EU verdict is not a real decision, so
+  // do not claim the actions are "tied". Maximin and minimax regret are
+  // probability-free and report an empty best set in that state on their own.
   const euTied =
-    result.euRanking.bestIndices.length === 0 ? false :
+    result.noProbabilityAssigned || result.euRanking.bestIndices.length === 0 ? false :
     result.euRanking.tiedAtInfinity
       ? (result.lexResult ? result.lexResult.topTieSet.length > 1 : true)
       : result.euRanking.bestIndices.length > 1;
