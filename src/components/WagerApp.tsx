@@ -65,6 +65,8 @@ export function WagerApp() {
     { value: "infinite", label: "Infinite" },
     { value: "bounded", label: "Bounded" },
     { value: "lexicographic", label: "Lexicographic" },
+    { value: "surreal", label: "Surreal (non-absorptive)" },
+    { value: "relative", label: "Relative (ratio)" },
   ];
 
   const MobileNav = () => (

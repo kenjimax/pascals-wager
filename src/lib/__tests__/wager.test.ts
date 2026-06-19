@@ -1465,3 +1465,440 @@ describe("decode rejects malformed matrix dimensions", () => {
     expect(serializableToState(s)).toBeNull();
   });
 });
+
+// --- Surreal Arithmetic Tests (Chen and Rubio 2020) ---
+
+import { SURREAL, OMEGA, NEG_OMEGA } from "../wager";
+
+describe("Surreal Arithmetic", () => {
+  it("0.5 * omega < omega", () => {
+    const half = erMultiplyByProb(0.5, OMEGA);
+    const cmp = erCompare(half, OMEGA);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeLessThan(0);
+  });
+
+  it("omega - omega == 0", () => {
+    const result = erSubtract(OMEGA, OMEGA);
+    expect(result.tag).toBe("surreal");
+    const cmp = erCompare(result, SURREAL([0]));
+    expect(cmp).toBe(0);
+  });
+
+  it("omega + 500 > omega", () => {
+    const sum = erAdd(OMEGA, SURREAL([500]));
+    const cmp = erCompare(sum, OMEGA);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeGreaterThan(0);
+  });
+
+  it("omega^2 > omega", () => {
+    const omegaSq = SURREAL([0, 0, 1]);
+    const cmp = erCompare(omegaSq, OMEGA);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeGreaterThan(0);
+  });
+
+  it("omega^2 > k * omega for large k", () => {
+    const omegaSq = SURREAL([0, 0, 1]);
+    const bigOmega = SURREAL([0, 1000000]);
+    const cmp = erCompare(omegaSq, bigOmega);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeGreaterThan(0);
+  });
+
+  it("surreal comparison is total (never null)", () => {
+    const values = [SURREAL([]), SURREAL([5]), OMEGA, NEG_OMEGA, SURREAL([0, 0, 1])];
+    for (const a of values) {
+      for (const b of values) {
+        expect(erCompare(a, b)).not.toBeNull();
+      }
+    }
+  });
+
+  it("surreal add is component-wise", () => {
+    const a = SURREAL([10, 2]);
+    const b = SURREAL([5, 3, 1]);
+    const result = erAdd(a, b);
+    expect(result.tag).toBe("surreal");
+    expect(result.coeffs).toEqual([15, 5, 1]);
+  });
+
+  it("surreal subtract is component-wise", () => {
+    const a = SURREAL([10, 5]);
+    const b = SURREAL([3, 2]);
+    const result = erSubtract(a, b);
+    expect(result.tag).toBe("surreal");
+    expect(result.coeffs).toEqual([7, 3]);
+  });
+
+  it("multiply by prob scales all coefficients", () => {
+    const s = SURREAL([100, 2, 1]);
+    const result = erMultiplyByProb(0.5, s);
+    expect(result.tag).toBe("surreal");
+    expect(result.coeffs).toEqual([50, 1, 0.5]);
+  });
+
+  it("0 * surreal = zero surreal", () => {
+    const result = erMultiplyByProb(0, OMEGA);
+    expect(result.tag).toBe("surreal");
+    const cmp = erCompare(result, SURREAL([0]));
+    expect(cmp).toBe(0);
+  });
+
+  it("surreal + finite promotes the finite to surreal", () => {
+    const result = erAdd(OMEGA, FINITE(500));
+    expect(result.tag).toBe("surreal");
+    expect(result.coeffs).toEqual([500, 1]);
+  });
+
+  it("erMax with surreals returns the larger", () => {
+    const a = SURREAL([0, 2]);
+    const b = SURREAL([0, 3]);
+    const result = erMax(a, b);
+    expect(result).not.toBeNull();
+    expect(result!.coeffs).toEqual([0, 3]);
+  });
+
+  it("erMin with surreals returns the smaller", () => {
+    const result = erMin(OMEGA, NEG_OMEGA);
+    expect(result).not.toBeNull();
+    expect(result!.coeffs).toEqual([0, -1]);
+  });
+
+  it("erEqual recognizes equal surreal values", () => {
+    expect(erEqual(SURREAL([5, 1]), SURREAL([5, 1]))).toBe(true);
+    expect(erEqual(SURREAL([5, 1]), SURREAL([5, 2]))).toBe(false);
+  });
+
+  it("erToString formats surreal values", () => {
+    expect(erToString(OMEGA)).toBe("w");
+    expect(erToString(NEG_OMEGA)).toBe("-w");
+    expect(erToString(SURREAL([500, 1]))).toBe("w + 500");
+    expect(erToString(SURREAL([0, 0, 1]))).toBe("w^2");
+    expect(erToString(SURREAL([0, 0.5]))).toBe("0.5w");
+    expect(erToString(SURREAL([]))).toBe("0");
+  });
+});
+
+// --- Surreal Mode: EU on Many Gods Preset ---
+
+describe("Surreal Mode: Many Gods", () => {
+  it("ranks deities by credence (not a tie)", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god_a", "Deity A", 40, "exclusivist"),
+        wv("god_b", "Deity B", 20, "exclusivist"),
+        wv("secular", "Secular", 40, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500)), cell(FINITE(-100))],
+        [cell(FINITE(-500)), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.headline.pick).toBe("Deity A");
+    expect(result.headline.euTied).toBe(false);
+  });
+
+  it("ranks by credence with equal-credence deities producing a tie", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god_a", "Deity A", 30, "exclusivist"),
+        wv("god_b", "Deity B", 30, "exclusivist"),
+        wv("secular", "Secular", 40, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500)), cell(FINITE(-100))],
+        [cell(FINITE(-500)), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.headline.euTied).toBe(true);
+    expect(result.headline.euOptimum).toEqual([0, 1]);
+  });
+});
+
+// --- Surreal Mode: Mixed Strategy Dominated ---
+
+describe("Surreal Mode: Mixed Strategy", () => {
+  it("pure wager strictly dominates a 50/50 mixed strategy in EU", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god", "God exists", 50, "exclusivist"),
+        wv("no_god", "No God", 50, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-50))],
+        [cell(FINITE(0)), cell(FINITE(100))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    const euWager = result.euRanking.eus[0];
+    const euSecular = result.euRanking.eus[1];
+
+    const mixed = erMultiplyByProb(0.5, erAdd(euWager, euSecular));
+    const cmp = erCompare(mixed, euWager);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeLessThan(0);
+  });
+});
+
+// --- Relative (Bartha) Mode Tests ---
+
+describe("Relative (Bartha) Mode", () => {
+  it("many-gods ranks by credence, not a tie", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god_a", "Deity A", 40, "exclusivist"),
+        wv("god_b", "Deity B", 20, "exclusivist"),
+        wv("secular", "Secular", 40, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500)), cell(FINITE(-100))],
+        [cell(FINITE(-500)), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "relative",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.headline.pick).toBe("Deity A");
+    expect(result.headline.euTied).toBe(false);
+  });
+
+  it("mixed strategy is dominated", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god", "God exists", 50, "exclusivist"),
+        wv("no_god", "No God", 50, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-50))],
+        [cell(FINITE(0)), cell(FINITE(100))],
+      ],
+      utilityMode: "relative",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    const euBelief = result.euRanking.eus[0];
+    const euSecular = result.euRanking.eus[1];
+
+    const mixed = erMultiplyByProb(0.5, erAdd(euBelief, euSecular));
+    const cmp = erCompare(mixed, euBelief);
+    expect(cmp).not.toBeNull();
+    expect(cmp!).toBeLessThan(0);
+  });
+
+  it("scale invariance: multiplying all finite payoffs by a positive constant does not change the ranking", () => {
+    const makeState = (scale: number): ScenarioState => ({
+      worldviews: [
+        wv("god_a", "Deity A", 40, "exclusivist"),
+        wv("god_b", "Deity B", 20, "exclusivist"),
+        wv("secular", "Secular", 40, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500 * scale)), cell(FINITE(-100 * scale))],
+        [cell(FINITE(-500 * scale)), cell(POS_INF), cell(FINITE(-100 * scale))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500 * scale))],
+      ],
+      utilityMode: "relative",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    });
+
+    const result1 = computeFullDecision(makeState(1));
+    const result10 = computeFullDecision(makeState(10));
+    const result001 = computeFullDecision(makeState(0.01));
+
+    expect(result1.headline.pick).toBe("Deity A");
+    expect(result10.headline.pick).toBe("Deity A");
+    expect(result001.headline.pick).toBe("Deity A");
+    expect(result1.headline.euOptimum).toEqual(result10.headline.euOptimum);
+    expect(result1.headline.euOptimum).toEqual(result001.headline.euOptimum);
+  });
+});
+
+// --- Regression: Existing Modes Unchanged ---
+
+describe("Regression: Existing modes unchanged", () => {
+  it("finite mode does not hit surreal or relative branches", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("a", "A", 40, "custom"),
+        wv("b", "B", 60, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(FINITE(1000)), cell(FINITE(-200))],
+        [cell(FINITE(-100)), cell(FINITE(500))],
+      ],
+      utilityMode: "finite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.euRanking.eus[0].tag).toBe("finite");
+    expect(result.euRanking.eus[1].tag).toBe("finite");
+  });
+
+  it("infinite mode still produces absorptive behavior", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god_a", "Deity A", 30, "exclusivist"),
+        wv("god_b", "Deity B", 30, "exclusivist"),
+        wv("secular", "Secular", 40, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500)), cell(FINITE(-100))],
+        [cell(FINITE(-500)), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "infinite",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.euRanking.tiedAtInfinity).toBe(true);
+  });
+
+  it("bounded mode produces finite EUs", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("belief", "Belief", 20, "custom"),
+        wv("secular", "Secular", 80, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(FINITE(100000)), cell(FINITE(-200))],
+        [cell(FINITE(-50000)), cell(FINITE(500))],
+      ],
+      utilityMode: "bounded",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.euRanking.eus[0].tag).toBe("finite");
+    expect(result.euRanking.eus[1].tag).toBe("finite");
+  });
+
+  it("lexicographic mode still applies lex tiebreak on infinite ties", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god_a", "Deity A", 60, "exclusivist"),
+        wv("god_b", "Deity B", 20, "exclusivist"),
+        wv("secular", "Secular", 20, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-500)), cell(FINITE(-100))],
+        [cell(FINITE(-500)), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "lexicographic",
+      lexicographicTiebreak: true,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.lexResult).not.toBeNull();
+  });
+});
+
+// --- Surreal Mode: Diderot's Imam (with NEG_INF) ---
+
+describe("Surreal Mode: Diderot Imam", () => {
+  it("ranks by credence when deities have unequal credence", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("christian", "Christian God", 50, "exclusivist"),
+        wv("islamic", "Islamic God", 30, "exclusivist"),
+        wv("secular", "Secular", 20, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(NEG_INF), cell(FINITE(-100))],
+        [cell(NEG_INF), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.headline.pick).toBe("Christian God");
+    expect(result.headline.euTied).toBe(false);
+  });
+
+  it("equal credence exclusivist deities cancel, secular wins on finite terms", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("christian", "Christian God", 40, "exclusivist"),
+        wv("islamic", "Islamic God", 40, "exclusivist"),
+        wv("secular", "Secular", 20, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(NEG_INF), cell(FINITE(-100))],
+        [cell(NEG_INF), cell(POS_INF), cell(FINITE(-100))],
+        [cell(FINITE(0)), cell(FINITE(0)), cell(FINITE(500))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    expect(result.headline.pick).toBe("Secular");
+  });
+});
+
+// --- Surreal serialization round-trip ---
+
+describe("Surreal Serialization", () => {
+  it("round-trips surreal cells through encode/decode", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god", "God", 50, "exclusivist"),
+        wv("no_god", "No God", 50, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-50))],
+        [cell(FINITE(0)), cell(FINITE(100))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const encoded = encodeState(state);
+    const decoded = decodeState(encoded);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.utilityMode).toBe("surreal");
+  });
+
+  it("round-trips relative mode through encode/decode", () => {
+    const state: ScenarioState = {
+      worldviews: [
+        wv("god", "God", 50, "exclusivist"),
+        wv("no_god", "No God", 50, "secular"),
+      ],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-50))],
+        [cell(FINITE(0)), cell(FINITE(100))],
+      ],
+      utilityMode: "relative",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const encoded = encodeState(state);
+    const decoded = decodeState(encoded);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.utilityMode).toBe("relative");
+  });
+});

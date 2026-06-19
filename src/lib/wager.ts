@@ -3,7 +3,7 @@
 
 // --- Extended Real Arithmetic (Section 4.1) ---
 
-export type ExtendedRealTag = "finite" | "pos_inf" | "neg_inf" | "indeterminate";
+export type ExtendedRealTag = "finite" | "pos_inf" | "neg_inf" | "indeterminate" | "surreal";
 
 export interface ExtendedReal {
   tag: ExtendedRealTag;
@@ -12,6 +12,10 @@ export interface ExtendedReal {
   // result is clamped to the safe-integer range, overflow is set to true so
   // the reporting layer can surface that arithmetic overflow occurred.
   overflow?: boolean;
+  // coeffs[k] is the real coefficient on omega^k. coeffs[0] is the finite
+  // part, coeffs[1] the omega coefficient, etc. Only meaningful when tag ===
+  // "surreal". Per Chen and Rubio (2020), "Surreal Decisions."
+  coeffs?: number[];
 }
 
 export const FINITE = (v: number): ExtendedReal => ({ tag: "finite", value: v });
@@ -19,10 +23,37 @@ export const POS_INF: ExtendedReal = { tag: "pos_inf", value: 0 };
 export const NEG_INF: ExtendedReal = { tag: "neg_inf", value: 0 };
 export const INDETERMINATE: ExtendedReal = { tag: "indeterminate", value: 0 };
 
+export const SURREAL = (coeffs: number[]): ExtendedReal => ({
+  tag: "surreal", value: 0, coeffs,
+});
+export const OMEGA: ExtendedReal = SURREAL([0, 1]);
+export const NEG_OMEGA: ExtendedReal = SURREAL([0, -1]);
+
 const SAFE_INT_LIMIT = Number.MAX_SAFE_INTEGER;
+
+function toSurreal(x: ExtendedReal): number[] {
+  if (x.tag === "surreal") return x.coeffs!;
+  if (x.tag === "finite") return [x.value];
+  return [];
+}
+
+function trimCoeffs(c: number[]): number[] {
+  let end = c.length;
+  while (end > 0 && c[end - 1] === 0) end--;
+  return end === c.length ? c : c.slice(0, end);
+}
 
 export function erAdd(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
   if (a.tag === "indeterminate" || b.tag === "indeterminate") return INDETERMINATE;
+
+  if (a.tag === "surreal" || b.tag === "surreal") {
+    const ca = toSurreal(a);
+    const cb = toSurreal(b);
+    const len = Math.max(ca.length, cb.length);
+    const result: number[] = [];
+    for (let i = 0; i < len; i++) result.push((ca[i] || 0) + (cb[i] || 0));
+    return SURREAL(trimCoeffs(result));
+  }
 
   if (a.tag === "finite" && b.tag === "finite") {
     const sum = a.value + b.value;
@@ -45,15 +76,34 @@ export function erAdd(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
 }
 
 export function erMultiplyByProb(prob: number, payoff: ExtendedReal): ExtendedReal {
-  if (prob === 0) return FINITE(0);
+  if (prob === 0) return payoff.tag === "surreal" ? SURREAL([]) : FINITE(0);
   if (payoff.tag === "indeterminate") return INDETERMINATE;
+  if (payoff.tag === "surreal") {
+    const c = payoff.coeffs!;
+    return SURREAL(trimCoeffs(c.map(v => v * prob)));
+  }
   if (payoff.tag === "pos_inf") return prob > 0 ? POS_INF : NEG_INF;
   if (payoff.tag === "neg_inf") return prob > 0 ? NEG_INF : POS_INF;
   return FINITE(prob * payoff.value);
 }
 
+function surrealCompare(ca: number[], cb: number[]): number {
+  const len = Math.max(ca.length, cb.length);
+  for (let i = len - 1; i >= 0; i--) {
+    const diff = (ca[i] || 0) - (cb[i] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
 export function erCompare(a: ExtendedReal, b: ExtendedReal): number | null {
   if (a.tag === "indeterminate" || b.tag === "indeterminate") return null;
+
+  if (a.tag === "surreal" || b.tag === "surreal") {
+    const ca = toSurreal(a);
+    const cb = toSurreal(b);
+    return surrealCompare(ca, cb);
+  }
 
   const rank = (x: ExtendedReal): number =>
     x.tag === "neg_inf" ? -2 : x.tag === "finite" ? 0 : 2;
@@ -62,9 +112,6 @@ export function erCompare(a: ExtendedReal, b: ExtendedReal): number | null {
   const rb = rank(b);
   if (ra !== rb) return ra - rb;
   if (a.tag === "finite" && b.tag === "finite") {
-    // Spec 4.4: finite EUs compare normally. No absolute tolerance bucket,
-    // so distinct finite values (even tiny ones, e.g. 0 vs 5e-13) never
-    // falsely tie.
     if (a.value === b.value) return 0;
     return a.value - b.value;
   }
@@ -98,6 +145,15 @@ export function erMin(a: ExtendedReal, b: ExtendedReal): ExtendedReal | null {
 export function erSubtract(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
   if (a.tag === "indeterminate" || b.tag === "indeterminate") return INDETERMINATE;
 
+  if (a.tag === "surreal" || b.tag === "surreal") {
+    const ca = toSurreal(a);
+    const cb = toSurreal(b);
+    const len = Math.max(ca.length, cb.length);
+    const result: number[] = [];
+    for (let i = 0; i < len; i++) result.push((ca[i] || 0) - (cb[i] || 0));
+    return SURREAL(trimCoeffs(result));
+  }
+
   const negB: ExtendedReal =
     b.tag === "finite" ? FINITE(-b.value) :
     b.tag === "pos_inf" ? NEG_INF :
@@ -108,6 +164,15 @@ export function erSubtract(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
 }
 
 export function erEqual(a: ExtendedReal, b: ExtendedReal): boolean {
+  if (a.tag === "surreal" || b.tag === "surreal") {
+    const ca = a.tag === "surreal" ? a.coeffs! : (a.tag === "finite" ? [a.value] : []);
+    const cb = b.tag === "surreal" ? b.coeffs! : (b.tag === "finite" ? [b.value] : []);
+    const len = Math.max(ca.length, cb.length);
+    for (let i = 0; i < len; i++) {
+      if (Math.abs((ca[i] || 0) - (cb[i] || 0)) >= 1e-12) return false;
+    }
+    return true;
+  }
   if (a.tag !== b.tag) return false;
   if (a.tag === "finite" && b.tag === "finite") return Math.abs(a.value - b.value) < 1e-12;
   return true;
@@ -119,6 +184,27 @@ export function erToString(v: ExtendedReal): string {
     case "neg_inf": return "-INF";
     case "indeterminate": return "UNDEF";
     case "finite": return v.value.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    case "surreal": {
+      const c = v.coeffs!;
+      if (c.length === 0) return "0";
+      const parts: string[] = [];
+      for (let i = c.length - 1; i >= 0; i--) {
+        const coeff = c[i];
+        if (coeff === 0) continue;
+        let term: string;
+        if (i === 0) {
+          term = coeff.toLocaleString("en-US", { maximumFractionDigits: 2 });
+        } else {
+          const wPart = i === 1 ? "w" : `w^${i}`;
+          if (coeff === 1) term = wPart;
+          else if (coeff === -1) term = `-${wPart}`;
+          else term = `${coeff.toLocaleString("en-US", { maximumFractionDigits: 2 })}${wPart}`;
+        }
+        if (parts.length > 0 && coeff > 0) parts.push("+ " + term);
+        else parts.push(term);
+      }
+      return parts.length === 0 ? "0" : parts.join(" ");
+    }
   }
 }
 
@@ -152,7 +238,7 @@ export interface ScenarioState {
   possibilityFilteredMaximin: boolean;
 }
 
-export type UtilityMode = "finite" | "infinite" | "bounded" | "lexicographic";
+export type UtilityMode = "finite" | "infinite" | "bounded" | "lexicographic" | "surreal" | "relative";
 
 export interface NormalizedProbabilities {
   probs: number[];
@@ -624,17 +710,73 @@ export interface DecisionResult {
   };
 }
 
+function preprocessSurreal(matrix: PayoffCell[][]): PayoffCell[][] {
+  return matrix.map(row => row.map(cell => {
+    const v = cell.value;
+    if (v.tag === "pos_inf") return { value: OMEGA };
+    if (v.tag === "neg_inf") return { value: NEG_OMEGA };
+    if (v.tag === "finite") return { value: SURREAL([v.value]) };
+    return cell;
+  }));
+}
+
+function preprocessRelative(matrix: PayoffCell[][]): PayoffCell[][] {
+  let maxFinite = -Infinity;
+  let minFinite = Infinity;
+  let hasInfinite = false;
+
+  for (const row of matrix) {
+    for (const cell of row) {
+      const v = cell.value;
+      if (v.tag === "pos_inf") { hasInfinite = true; }
+      if (v.tag === "finite") {
+        if (v.value > maxFinite) maxFinite = v.value;
+        if (v.value < minFinite) minFinite = v.value;
+      }
+    }
+  }
+
+  if (maxFinite === -Infinity) maxFinite = 1;
+  if (minFinite === Infinity) minFinite = 0;
+  if (maxFinite === minFinite) maxFinite = minFinite + 1;
+
+  const finiteRange = maxFinite - minFinite;
+
+  return matrix.map(row => row.map(cell => {
+    const v = cell.value;
+    if (v.tag === "pos_inf") return { value: FINITE(1) };
+    if (v.tag === "neg_inf") return { value: FINITE(hasInfinite ? -1 : 0) };
+    if (v.tag === "indeterminate") return cell;
+    if (v.tag === "finite") {
+      const normalized = finiteRange > 0 ? (v.value - minFinite) / finiteRange : 0.5;
+      if (hasInfinite) {
+        return { value: FINITE(normalized * 0.01) };
+      }
+      return { value: FINITE(normalized) };
+    }
+    return cell;
+  }));
+}
+
 export function computeFullDecision(state: ScenarioState): DecisionResult {
   const norm = normalizeProbabilitiesResult(state.worldviews);
   const probs = norm.probs;
-  const euRanking = rankByEU(probs, state.payoffMatrix);
-  const dominance = computeDominance(probs, state.payoffMatrix);
-  const maximin = computeMaximin(probs, state.payoffMatrix, state.possibilityFilteredMaximin);
-  const minimaxRegret = computeMinimaxRegret(probs, state.payoffMatrix);
+
+  let matrix = state.payoffMatrix;
+  if (state.utilityMode === "surreal") {
+    matrix = preprocessSurreal(matrix);
+  } else if (state.utilityMode === "relative") {
+    matrix = preprocessRelative(matrix);
+  }
+
+  const euRanking = rankByEU(probs, matrix);
+  const dominance = computeDominance(probs, matrix);
+  const maximin = computeMaximin(probs, matrix, state.possibilityFilteredMaximin);
+  const minimaxRegret = computeMinimaxRegret(probs, matrix);
 
   let lexResult: LexicographicResult | null = null;
   if (state.lexicographicTiebreak && euRanking.tiedAtInfinity) {
-    lexResult = lexicographicTiebreak(euRanking.bestIndices, probs, state.payoffMatrix);
+    lexResult = lexicographicTiebreak(euRanking.bestIndices, probs, matrix);
   }
 
   // Spec 4.2: no probability assigned. Surface explicitly; do not evaluate or
@@ -1248,6 +1390,7 @@ export interface SerializableState {
   matrix: Array<Array<{
     tag: ExtendedRealTag;
     value: number;
+    coeffs?: number[];
   }>>;
   utilityMode: UtilityMode;
   lexicographicTiebreak: boolean;
@@ -1264,7 +1407,15 @@ export function stateToSerializable(state: ScenarioState): SerializableState {
       template: w.template,
     })),
     matrix: state.payoffMatrix.map(row =>
-      row.map(cell => ({ tag: cell.value.tag, value: cell.value.value }))
+      row.map(cell => {
+        const base: { tag: ExtendedRealTag; value: number; coeffs?: number[] } = {
+          tag: cell.value.tag, value: cell.value.value,
+        };
+        if (cell.value.tag === "surreal" && cell.value.coeffs) {
+          base.coeffs = cell.value.coeffs;
+        }
+        return base;
+      })
     ),
     utilityMode: state.utilityMode,
     lexicographicTiebreak: state.lexicographicTiebreak,
@@ -1273,13 +1424,13 @@ export function stateToSerializable(state: ScenarioState): SerializableState {
 }
 
 const VALID_ER_TAGS: ReadonlySet<string> = new Set<ExtendedRealTag>([
-  "finite", "pos_inf", "neg_inf", "indeterminate",
+  "finite", "pos_inf", "neg_inf", "indeterminate", "surreal",
 ]);
 const VALID_TEMPLATES: ReadonlySet<string> = new Set<TheologyTemplate>([
   "exclusivist", "universalist", "annihilationist", "professors_god", "secular", "custom",
 ]);
 const VALID_UTILITY_MODES: ReadonlySet<string> = new Set<UtilityMode>([
-  "finite", "infinite", "bounded", "lexicographic",
+  "finite", "infinite", "bounded", "lexicographic", "surreal", "relative",
 ]);
 
 export function isValidExtendedRealTag(tag: unknown): tag is ExtendedRealTag {
@@ -1307,7 +1458,14 @@ export function serializableToState(s: SerializableState): ScenarioState | null 
     for (const cell of row) {
       if (!isValidExtendedRealTag(cell.tag)) return null;
       const value = typeof cell.value === "number" && Number.isFinite(cell.value) ? cell.value : 0;
-      outRow.push({ value: { tag: cell.tag, value: cell.tag === "finite" ? value : 0 } });
+      if (cell.tag === "surreal") {
+        const coeffs = Array.isArray(cell.coeffs)
+          ? cell.coeffs.filter((c): c is number => typeof c === "number" && Number.isFinite(c))
+          : [];
+        outRow.push({ value: { tag: "surreal", value: 0, coeffs } });
+      } else {
+        outRow.push({ value: { tag: cell.tag, value: cell.tag === "finite" ? value : 0 } });
+      }
     }
     payoffMatrix.push(outRow);
   }
