@@ -9,48 +9,59 @@ interface DivineImage {
   date: string;
 }
 
-// Only vertically composed images belong in the tall rail. Landscape works (the
-// Sistine ceiling) crop to an unreadable dark center sliver here, so they are
-// kept out. The Ancient of Days figure and Dore's Empyrean both fill the rail
-// and read clearly wherever the gutter is visible.
-const LEFT_IMAGES: DivineImage[] = [
-  {
-    src: "/divine/ancient-of-days.jpg",
-    position: "top center",
-    artist: "Blake",
-    title: "The Ancient of Days",
-    date: "1794",
-  },
-  {
-    src: "/divine/dore-paradiso.jpg",
-    position: "center",
-    artist: "Dore",
-    title: "Paradiso, the Empyrean",
-    date: "1868",
-  },
+// A pool of vertically composed public-domain depictions of God, the Trinity,
+// and the heavenly vision. Landscape works are deliberately excluded: in the
+// tall narrow rail they crop to an unreadable center sliver. Each entry reads
+// clearly when object-cover fills the rail. objectPosition is tuned so the
+// focal figure stays in frame for portraits where the face sits high.
+const POOL: DivineImage[] = [
+  { src: "/divine/ancient-of-days.jpg", position: "top center", artist: "Blake", title: "The Ancient of Days", date: "1794" },
+  { src: "/divine/blake-job-whirlwind.jpg", position: "center", artist: "Blake", title: "The Lord Answers Job from the Whirlwind", date: "1805" },
+  { src: "/divine/blake-mighty-angel.jpg", position: "center", artist: "Blake", title: "A Mighty Angel", date: "1805" },
+  { src: "/divine/carracci-trinity-dead-christ.jpg", position: "top center", artist: "Carracci", title: "The Trinity with the Dead Christ", date: "1590" },
+  { src: "/divine/degrebber-god-inviting-christ.jpg", position: "center", artist: "de Grebber", title: "God Inviting Christ to His Right Hand", date: "1645" },
+  { src: "/divine/dore-creation-of-light.jpg", position: "center", artist: "Dore", title: "The Creation of Light", date: "1866" },
+  { src: "/divine/dore-empyrean-light.jpg", position: "center", artist: "Dore", title: "The Empyrean", date: "1868" },
+  { src: "/divine/dore-paradiso-canto31-plate.jpg", position: "center", artist: "Dore", title: "Paradiso, the Celestial Rose", date: "1868" },
+  { src: "/divine/dore-paradiso.jpg", position: "center", artist: "Dore", title: "Paradiso, the Empyrean", date: "1868" },
+  { src: "/divine/dore-zechariah-vision.jpg", position: "center", artist: "Dore", title: "Zechariah's Vision", date: "1866" },
+  { src: "/divine/elgreco-holy-trinity.jpg", position: "top center", artist: "El Greco", title: "The Holy Trinity", date: "1577" },
+  { src: "/divine/milton-paradise-lost-24.jpg", position: "center", artist: "Dore", title: "Paradise Lost, the Heavenly Host", date: "1866" },
+  { src: "/divine/milton-paradise-lost-5.jpg", position: "center", artist: "Dore", title: "Paradise Lost", date: "1866" },
+  { src: "/divine/pantocrator-hagia-sophia.jpg", position: "top center", artist: "Byzantine mosaic", title: "Christ Pantocrator, Hagia Sophia", date: "1261" },
+  { src: "/divine/pantocrator-sinai.jpg", position: "top center", artist: "Byzantine icon", title: "Christ Pantocrator of Sinai", date: "550" },
+  { src: "/divine/pantocrator-spas-sinai.jpg", position: "top center", artist: "Byzantine icon", title: "Christ Pantocrator", date: "1200" },
+  { src: "/divine/rembrandt-god-the-father-head.jpg", position: "top center", artist: "Rembrandt", title: "Head of God the Father", date: "1655" },
+  { src: "/divine/rublev-trinity.jpg", position: "center", artist: "Rublev", title: "The Holy Trinity", date: "1411" },
+  { src: "/divine/velazquez-coronation.jpg", position: "top center", artist: "Velazquez", title: "The Coronation of the Virgin", date: "1644" },
 ];
 
-const RIGHT_IMAGE: DivineImage = {
-  src: "/divine/dore-paradiso.jpg",
-  position: "center",
-  artist: "Dore",
-  title: "Paradiso, the Empyrean",
-  date: "1868",
-};
-
-const ROTATION_MS = 5 * 60 * 1000;
-
-function getCurrentImageIndex(count: number): number {
-  const now = new Date();
-  const minutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
-  return Math.floor(minutesSinceMidnight / 5) % count;
-}
+const ROTATION_MS = 90 * 1000;
 
 // Baked in at build time by next.config (env.NEXT_PUBLIC_BASE_PATH), so the
 // static-export HTML and the hydrated client always agree on the asset prefix.
 // Raw <img> src values are not rewritten by Next's basePath, so we prefix them
-// here. Inlined as a literal at build, this needs no runtime detection.
+// here.
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
+
+// Choose two distinct indices into the pool, avoiding the pair currently shown
+// where possible so the rotation visibly changes. The two are always different
+// from each other, so the same artwork never appears on both rails at once.
+function pickPair(count: number, prevLeft: number, prevRight: number): [number, number] {
+  if (count < 2) return [0, 0];
+  let left = Math.floor(Math.random() * count);
+  let right = Math.floor(Math.random() * count);
+  let guard = 0;
+  while (
+    guard++ < 100 &&
+    (right === left || left === prevLeft || right === prevRight)
+  ) {
+    left = Math.floor(Math.random() * count);
+    right = Math.floor(Math.random() * count);
+  }
+  if (right === left) right = (left + 1) % count;
+  return [left, right];
+}
 
 function Rail({
   image,
@@ -71,26 +82,23 @@ function Rail({
       aria-hidden="true"
       style={{ pointerEvents: "none", opacity }}
     >
-      {/* Image container */}
       <div className="flex-1 relative overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          key={image.src}
           src={`${BASE_PATH}${image.src}`}
           alt=""
           className={`w-full h-full object-cover ${!prefersReducedMotion ? "transition-opacity duration-1000" : ""}`}
           style={{ objectPosition: image.position }}
           loading="lazy"
         />
-        {/* Scanline overlay */}
         <div
           className="absolute inset-0"
           style={{
             background: "repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(0,0,0,0.08) 3px, rgba(0,0,0,0.08) 6px)",
           }}
         />
-        {/* Corner brackets */}
         <div className="absolute top-2 left-2 right-2 bottom-2 border border-[rgba(0,240,255,0.15)] pointer-events-none" />
-        {/* Vignette */}
         <div
           className="absolute inset-0"
           style={{
@@ -98,7 +106,6 @@ function Rail({
           }}
         />
       </div>
-      {/* Caption */}
       <div
         className="px-3 py-2 text-center border-t border-[rgba(0,240,255,0.1)]"
         style={{
@@ -109,7 +116,6 @@ function Rail({
           {image.artist}, {image.title}, {image.date}
         </span>
       </div>
-      {/* Edge glow */}
       <div
         className={`absolute top-0 bottom-0 ${side === "left" ? "right-0" : "left-0"} w-px`}
         style={{
@@ -122,36 +128,27 @@ function Rail({
 }
 
 export function DivineRail() {
-  // Deterministic initial index so the static-export HTML and the first client
-  // render agree (a time-based initial value would mismatch and trip a
-  // hydration error). The real, time-rotated index is set immediately after
-  // mount in the effect below.
-  const [imageIndex, setImageIndex] = useState(0);
+  // Deterministic initial pair so the static-export HTML and the first client
+  // render agree (a random initial value would trip a hydration mismatch). The
+  // real randomized pair is set immediately after mount. Left and right start
+  // on different images so they are never the same artwork.
+  const [pair, setPair] = useState<[number, number]>([0, 1]);
 
   useEffect(() => {
-    setImageIndex(getCurrentImageIndex(LEFT_IMAGES.length));
-    const now = new Date();
-    const minutesIntoSlot = now.getMinutes() % 5;
-    const msUntilNext =
-      (5 - minutesIntoSlot) * 60 * 1000 -
-      now.getSeconds() * 1000 -
-      now.getMilliseconds();
-
-    const firstTimeout = setTimeout(() => {
-      setImageIndex(getCurrentImageIndex(LEFT_IMAGES.length));
-      const interval = setInterval(() => {
-        setImageIndex(getCurrentImageIndex(LEFT_IMAGES.length));
-      }, ROTATION_MS);
-      return () => clearInterval(interval);
-    }, msUntilNext);
-
-    return () => clearTimeout(firstTimeout);
+    setPair(prev => pickPair(POOL.length, prev[0], prev[1]));
+    const interval = setInterval(() => {
+      setPair(prev => pickPair(POOL.length, prev[0], prev[1]));
+    }, ROTATION_MS);
+    return () => clearInterval(interval);
   }, []);
+
+  const left = POOL[pair[0]] ?? POOL[0];
+  const right = POOL[pair[1]] ?? POOL[1];
 
   return (
     <>
-      <Rail image={LEFT_IMAGES[imageIndex]} side="left" />
-      <Rail image={RIGHT_IMAGE} side="right" opacity={0.6} />
+      <Rail image={left} side="left" />
+      <Rail image={right} side="right" opacity={0.6} />
     </>
   );
 }
