@@ -20,6 +20,10 @@ function cloneState(s: ScenarioState): ScenarioState {
 
 export function useWagerState() {
   const [state, setStateRaw] = useState<ScenarioState>(() => PRESETS[0].state);
+  // The preset the current scenario was last loaded from, so the UI can name
+  // the active scenario instead of a generic placeholder. Null means the state
+  // came from a share link or a manual build, i.e. a custom scenario.
+  const [activePresetId, setActivePresetId] = useState<string | null>(PRESETS[0].id);
   // Derive the decision result synchronously from state. Computing it in an
   // effect (the previous design) left result one render behind state, so on a
   // preset load that changed the worldview count, child components received a
@@ -37,11 +41,13 @@ export function useWagerState() {
     const fromURL = loadFromURL();
     if (fromURL) {
       setStateRaw(fromURL);
+      setActivePresetId(null);
       return;
     }
     const fromLS = loadFromLocalStorage();
     if (fromLS) {
       setStateRaw(fromLS);
+      setActivePresetId(null);
       return;
     }
   }, []);
@@ -72,6 +78,7 @@ export function useWagerState() {
     if (preset) {
       pushUndo("load preset");
       setStateRaw(cloneState(preset.state));
+      setActivePresetId(preset.id);
     }
   }, [pushUndo]);
 
@@ -160,10 +167,11 @@ export function useWagerState() {
   const resetToPreset = useCallback(() => {
     pushUndo("reset to preset");
     setStateRaw(cloneState(PRESETS[0].state));
+    setActivePresetId(PRESETS[0].id);
   }, [pushUndo]);
 
   return {
-    state, result,
+    state, result, activePresetId,
     setState, undo, canUndo,
     loadPreset, addWorldview, removeWorldview,
     updateWorldviewWeight, toggleExclude, updatePayoffCell,
