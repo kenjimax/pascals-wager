@@ -46,9 +46,15 @@ function scenarioShape(s: { worldviews: ScenarioState["worldviews"]; payoffMatri
 }
 
 export function ScenarioContextBar({ activePresetId, utilityMode, state }: Props) {
-  const preset = activePresetId ? PRESETS.find(p => p.id === activePresetId) : null;
   const mode = MODE_NOTES[utilityMode];
-  const modified = preset ? scenarioShape(state) !== scenarioShape(preset.state) : false;
+  const shape = scenarioShape(state);
+  // Prefer the preset the scenario was loaded from (so edits read as
+  // "(modified)"). Otherwise, if the current scenario happens to match a preset
+  // exactly (a restored snapshot or a shared state), name that preset; failing
+  // both, it is a custom scenario.
+  const basis = activePresetId ? PRESETS.find(p => p.id === activePresetId) ?? null : null;
+  const preset = basis ?? PRESETS.find(p => scenarioShape(p.state) === shape) ?? null;
+  const modified = basis ? shape !== scenarioShape(basis.state) : false;
 
   return (
     <div className="mt-2 flex flex-col gap-1.5 text-[0.6875rem] font-mono leading-snug">

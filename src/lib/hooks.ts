@@ -65,6 +65,11 @@ export function useWagerState() {
   const setState = useCallback((next: ScenarioState, undoLabel?: string) => {
     if (undoLabel) pushUndo(undoLabel);
     setStateRaw(next);
+    // Generic loads (a framing, a restored tour snapshot, an arbitrary state)
+    // are not a preset selection. Clear the basis preset; the context bar falls
+    // back to matching the state against presets by shape, so a state that does
+    // happen to equal a preset still labels correctly.
+    setActivePresetId(null);
   }, [pushUndo]);
 
   const undo = useCallback(() => {
