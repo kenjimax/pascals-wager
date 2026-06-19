@@ -104,7 +104,7 @@ function InfinityToggle({
     <div className="flex gap-1">
       <button
         onClick={() => onChange(POS_INF)}
-        className={`text-[8px] font-mono px-1 border transition-colors ${
+        className={`text-[0.5rem] font-mono px-1 border transition-colors ${
           value.tag === "pos_inf" ? "border-cp-green/50 text-cp-green bg-cp-green/10" : "border-cp-border text-cp-text-dim hover:text-cp-green"
         }`}
         aria-label="Set to positive infinity"
@@ -113,7 +113,7 @@ function InfinityToggle({
       </button>
       <button
         onClick={() => onChange(NEG_INF)}
-        className={`text-[8px] font-mono px-1 border transition-colors ${
+        className={`text-[0.5rem] font-mono px-1 border transition-colors ${
           value.tag === "neg_inf" ? "border-cp-magenta/50 text-cp-magenta bg-cp-magenta/10" : "border-cp-border text-cp-text-dim hover:text-cp-magenta"
         }`}
         aria-label="Set to negative infinity"
@@ -122,7 +122,7 @@ function InfinityToggle({
       </button>
       <button
         onClick={() => onChange(FINITE(value.tag === "finite" ? value.value : 0))}
-        className={`text-[8px] font-mono px-1 border transition-colors ${
+        className={`text-[0.5rem] font-mono px-1 border transition-colors ${
           value.tag === "finite" ? "border-cp-cyan/50 text-cp-cyan bg-cp-cyan/10" : "border-cp-border text-cp-text-dim hover:text-cp-cyan"
         }`}
         aria-label="Set to finite value"

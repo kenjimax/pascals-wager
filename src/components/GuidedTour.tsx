@@ -324,6 +324,7 @@ function Step3Slider({ onChange, value }: { onChange: (v: number) => void; value
           onChange={e => onChange(parseInt(e.target.value, 10))}
           className="flex-1"
           aria-label="God exists credence for step 3"
+          aria-valuetext={`${value} percent`}
         />
         <span className="text-cp-cyan w-10 text-right">{value}%</span>
       </label>
@@ -343,6 +344,7 @@ export function GuidedTour({ open, onClose, currentState, onRestoreState }: Prop
       snapshotRef.current = JSON.parse(JSON.stringify(currentState));
       previousFocusRef.current = document.activeElement as HTMLElement;
       setStep(0);
+      setStep3Credence(1);
     }
   }, [open, currentState]);
 
