@@ -164,18 +164,9 @@ export function erSubtract(a: ExtendedReal, b: ExtendedReal): ExtendedReal {
 }
 
 export function erEqual(a: ExtendedReal, b: ExtendedReal): boolean {
-  if (a.tag === "surreal" || b.tag === "surreal") {
-    const ca = a.tag === "surreal" ? a.coeffs! : (a.tag === "finite" ? [a.value] : []);
-    const cb = b.tag === "surreal" ? b.coeffs! : (b.tag === "finite" ? [b.value] : []);
-    const len = Math.max(ca.length, cb.length);
-    for (let i = 0; i < len; i++) {
-      if (Math.abs((ca[i] || 0) - (cb[i] || 0)) >= 1e-12) return false;
-    }
-    return true;
-  }
-  if (a.tag !== b.tag) return false;
-  if (a.tag === "finite" && b.tag === "finite") return Math.abs(a.value - b.value) < 1e-12;
-  return true;
+  // Delegate to erCompare so equality and ordering can never disagree (two
+  // indeterminate values are not equal, mirroring an undefined comparison).
+  return erCompare(a, b) === 0;
 }
 
 export function erToString(v: ExtendedReal): string {
@@ -720,15 +711,23 @@ function preprocessSurreal(matrix: PayoffCell[][]): PayoffCell[][] {
   }));
 }
 
+// Bartha (2007) relative utilities, ordinal form. Everything is measured
+// against an apex outcome (relative utility 1) and a base-point Z (relative 0).
+// When salvation (a positive infinity) is the apex, earthly rewards collapse
+// toward 0 relative to it, exactly as Bartha notes ("Table III fails to preserve
+// distinctions among the earthly rewards"); the small 0.01 band keeps a tiny
+// ordinal distinction so finite outcomes still rank among themselves. The
+// resulting expected relative utility scales with the mixing probability, so
+// mixed strategies stop tying and many-gods ranks by credence.
 function preprocessRelative(matrix: PayoffCell[][]): PayoffCell[][] {
   let maxFinite = -Infinity;
   let minFinite = Infinity;
-  let hasInfinite = false;
+  let hasPosInfinite = false;
 
   for (const row of matrix) {
     for (const cell of row) {
       const v = cell.value;
-      if (v.tag === "pos_inf") { hasInfinite = true; }
+      if (v.tag === "pos_inf") hasPosInfinite = true;
       if (v.tag === "finite") {
         if (v.value > maxFinite) maxFinite = v.value;
         if (v.value < minFinite) minFinite = v.value;
@@ -744,15 +743,19 @@ function preprocessRelative(matrix: PayoffCell[][]): PayoffCell[][] {
 
   return matrix.map(row => row.map(cell => {
     const v = cell.value;
+    // Apex: a positive infinity is relative utility 1.
     if (v.tag === "pos_inf") return { value: FINITE(1) };
-    if (v.tag === "neg_inf") return { value: FINITE(hasInfinite ? -1 : 0) };
+    // A negative infinity is strictly worse than any finite outcome (which all
+    // map to >= 0), so place it below the finite band rather than at 0, which
+    // would falsely tie it with the worst finite outcome.
+    if (v.tag === "neg_inf") return { value: FINITE(-1) };
     if (v.tag === "indeterminate") return cell;
     if (v.tag === "finite") {
       const normalized = finiteRange > 0 ? (v.value - minFinite) / finiteRange : 0.5;
-      if (hasInfinite) {
-        return { value: FINITE(normalized * 0.01) };
-      }
-      return { value: FINITE(normalized) };
+      // With an infinite apex present, finite outcomes are near-zero relative to
+      // it; keep a small ordinal band. Otherwise the best finite outcome is the
+      // apex and finite outcomes span the full [0, 1].
+      return { value: FINITE(hasPosInfinite ? normalized * 0.01 : normalized) };
     }
     return cell;
   }));
@@ -1390,7 +1393,6 @@ export interface SerializableState {
   matrix: Array<Array<{
     tag: ExtendedRealTag;
     value: number;
-    coeffs?: number[];
   }>>;
   utilityMode: UtilityMode;
   lexicographicTiebreak: boolean;
@@ -1408,13 +1410,15 @@ export function stateToSerializable(state: ScenarioState): SerializableState {
     })),
     matrix: state.payoffMatrix.map(row =>
       row.map(cell => {
-        const base: { tag: ExtendedRealTag; value: number; coeffs?: number[] } = {
-          tag: cell.value.tag, value: cell.value.value,
-        };
-        if (cell.value.tag === "surreal" && cell.value.coeffs) {
-          base.coeffs = cell.value.coeffs;
-        }
-        return base;
+        // Surreal values are an internal compute-only form (built transiently by
+        // preprocessSurreal, never written back to state), so a persistable cell
+        // must never carry one. If one somehow reaches serialization, encode it
+        // as indeterminate (an honest "undefined" sentinel that decodes cleanly)
+        // rather than emitting a "surreal" tag the decoder would reject, which
+        // would make the codec asymmetric.
+        const v = cell.value;
+        if (v.tag === "surreal") return { tag: "indeterminate" as ExtendedRealTag, value: 0 };
+        return { tag: v.tag, value: v.value };
       })
     ),
     utilityMode: state.utilityMode,
@@ -1423,8 +1427,13 @@ export function stateToSerializable(state: ScenarioState): SerializableState {
   };
 }
 
+// Surreal cells exist only transiently inside computeFullDecision (the
+// preprocessing hook builds them and never writes them back to state), so a
+// persisted/shared payoff matrix must never contain a surreal cell. Excluding
+// "surreal" here means a hand-crafted share link cannot inject one, which would
+// otherwise let raw infinities and surreal values mix in a single comparison.
 const VALID_ER_TAGS: ReadonlySet<string> = new Set<ExtendedRealTag>([
-  "finite", "pos_inf", "neg_inf", "indeterminate", "surreal",
+  "finite", "pos_inf", "neg_inf", "indeterminate",
 ]);
 const VALID_TEMPLATES: ReadonlySet<string> = new Set<TheologyTemplate>([
   "exclusivist", "universalist", "annihilationist", "professors_god", "secular", "custom",
@@ -1458,14 +1467,7 @@ export function serializableToState(s: SerializableState): ScenarioState | null 
     for (const cell of row) {
       if (!isValidExtendedRealTag(cell.tag)) return null;
       const value = typeof cell.value === "number" && Number.isFinite(cell.value) ? cell.value : 0;
-      if (cell.tag === "surreal") {
-        const coeffs = Array.isArray(cell.coeffs)
-          ? cell.coeffs.filter((c): c is number => typeof c === "number" && Number.isFinite(c))
-          : [];
-        outRow.push({ value: { tag: "surreal", value: 0, coeffs } });
-      } else {
-        outRow.push({ value: { tag: cell.tag, value: cell.tag === "finite" ? value : 0 } });
-      }
+      outRow.push({ value: { tag: cell.tag, value: cell.tag === "finite" ? value : 0 } });
     }
     payoffMatrix.push(outRow);
   }

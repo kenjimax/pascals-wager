@@ -1464,6 +1464,72 @@ describe("decode rejects malformed matrix dimensions", () => {
     s.matrix = [s.matrix[0].slice(0, 1)];
     expect(serializableToState(s)).toBeNull();
   });
+
+  it("rejects a surreal cell tag from a hand-crafted share link", () => {
+    // Surreal cells only exist transiently during compute, never in a stored
+    // matrix. A share link claiming a surreal cell is malformed and must be
+    // rejected so raw infinities and surreal values can never mix.
+    const base: ScenarioState = {
+      worldviews: [wv("a", "A", 50), wv("b", "B", 50)],
+      payoffMatrix: [
+        [cell(FINITE(1)), cell(FINITE(2))],
+        [cell(FINITE(3)), cell(FINITE(4))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const s = stateToSerializable(base);
+    // utilityMode "surreal" is a valid mode and must survive the round trip,
+    // but a surreal-tagged CELL must not.
+    expect(serializableToState(s)).not.toBeNull();
+    expect(serializableToState(s)!.utilityMode).toBe("surreal");
+    const corrupt = stateToSerializable(base);
+    (corrupt.matrix[0][0] as { tag: string }).tag = "surreal";
+    expect(serializableToState(corrupt)).toBeNull();
+  });
+
+  it("serializes a stray surreal cell as indeterminate so the codec stays symmetric", () => {
+    // A surreal value must never legitimately reach state, but if one does the
+    // encoder must not emit a "surreal" tag the decoder would then reject, which
+    // would make decode(encode(x)) return null. It degrades to indeterminate.
+    const base: ScenarioState = {
+      worldviews: [wv("a", "A", 50), wv("b", "B", 50)],
+      payoffMatrix: [
+        [{ value: SURREAL([0, 1]) }, cell(FINITE(2))],
+        [cell(FINITE(3)), cell(FINITE(4))],
+      ],
+      utilityMode: "surreal",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const s = stateToSerializable(base);
+    expect(s.matrix[0][0].tag).toBe("indeterminate");
+    expect((s.matrix[0][0] as { coeffs?: number[] }).coeffs).toBeUndefined();
+    const round = serializableToState(s);
+    expect(round).not.toBeNull();
+    expect(round!.payoffMatrix[0][0].value.tag).toBe("indeterminate");
+  });
+});
+
+describe("Relative mode preprocessing (Bartha)", () => {
+  it("places negative infinity strictly below every finite outcome", () => {
+    // Damnation must not tie with the worst finite earthly outcome.
+    const state: ScenarioState = {
+      worldviews: [wv("believe", "Believe", 50), wv("secular", "Secular", 50)],
+      payoffMatrix: [
+        [cell(POS_INF), cell(FINITE(-100))],
+        [cell(NEG_INF), cell(FINITE(500))],
+      ],
+      utilityMode: "relative",
+      lexicographicTiebreak: false,
+      possibilityFilteredMaximin: true,
+    };
+    const result = computeFullDecision(state);
+    // Believe wins under relative utilities (apex is salvation; the mixed/secular
+    // route cannot reach it), and the result is determinate, not a tie.
+    expect(result.euRanking.bestIndices).toEqual([0]);
+  });
 });
 
 // --- Surreal Arithmetic Tests (Chen and Rubio 2020) ---
