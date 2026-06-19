@@ -19,10 +19,10 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-rajdhani font-semibold truncate max-w-[140px]">{wv.name}</span>
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] text-cp-text-dim">
+              <span className="font-mono text-[0.6875rem] text-cp-text-dim">
                 w={wv.rawWeight.toFixed(1)}
               </span>
-              <span className="font-mono text-[11px] text-cp-cyan">
+              <span className="font-mono text-[0.6875rem] text-cp-cyan">
                 {(probs[i] * 100).toFixed(1)}%
               </span>
             </div>
@@ -30,10 +30,10 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
 
           {wv.excluded ? (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-cp-magenta">EXCLUDED (P = 0, impossible)</span>
+              <span className="text-[0.625rem] font-mono text-cp-magenta">EXCLUDED (P = 0, impossible)</span>
               <button
                 onClick={() => onToggleExclude(i)}
-                className="text-[10px] font-mono text-cp-text-dim hover:text-cp-cyan"
+                className="text-[0.625rem] font-mono text-cp-text-dim hover:text-cp-cyan"
               >
                 [RESTORE]
               </button>
@@ -60,7 +60,7 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
                   const v = parseFloat(e.target.value);
                   if (!isNaN(v) && v >= 0) onUpdateWeight(i, v);
                 }}
-                className="cp-input text-[11px] w-16 text-right"
+                className="cp-input text-[0.6875rem] w-16 text-right"
                 aria-label={`Credence weight numeric for ${wv.name}`}
               />
             </div>
@@ -70,7 +70,7 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
 
       {/* Allocation bar */}
       <div>
-        <div className="text-[10px] font-mono text-cp-text-dim mb-1">
+        <div className="text-[0.625rem] font-mono text-cp-text-dim mb-1">
           Normalized allocation (weights rescaled to sum to 100%)
         </div>
         <div className="h-3 flex overflow-hidden border border-cp-cyan/10" role="presentation">
@@ -94,7 +94,7 @@ export function CredenceEditor({ worldviews, onUpdateWeight, onToggleExclude }: 
       </div>
 
       {totalRaw === 0 && (
-        <div className="text-[10px] font-mono text-cp-magenta">
+        <div className="text-[0.625rem] font-mono text-cp-magenta">
           No probability assigned. All weights are zero or excluded.
         </div>
       )}

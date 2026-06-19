@@ -28,9 +28,10 @@ export function LimitsPanel({ open, onClose }: Props) {
               What this is
             </h3>
             <p>
-              This tool models one prudential argument (Pascal{"'"}s Wager and its many-gods generalization)
-              as a decision matrix. It is not theology, not philosophy of religion, and not advice about
-              what to believe or how to live.
+              This tool computes a decision matrix over rival worldviews with extended-real payoffs
+              (including infinities) and evaluates it under four decision rules: expected utility,
+              statewise dominance, maximin, and minimax regret. It covers Pascal{"'"}s original wager
+              and its many-gods generalization.
             </p>
           </section>
 

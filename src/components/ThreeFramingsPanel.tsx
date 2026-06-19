@@ -103,19 +103,19 @@ function FramingCard({
 }) {
   return (
     <div className="cp-panel">
-      <div className="cp-panel-header text-[11px]">
+      <div className="cp-panel-header text-[0.6875rem]">
         <span>{framing.name}</span>
       </div>
       <div className="cp-panel-body space-y-2">
-        <div className="text-[10px] font-mono text-cp-yellow px-2 py-1 bg-cp-yellow/5 border border-cp-yellow/10">
+        <div className="text-[0.625rem] font-mono text-cp-yellow px-2 py-1 bg-cp-yellow/5 border border-cp-yellow/10">
           Assumes: {framing.assumptions}
         </div>
-        <p className="text-[11px] text-cp-text-dim leading-relaxed">
+        <p className="text-[0.6875rem] text-cp-text-dim leading-relaxed">
           {framing.description}
         </p>
         <button
           onClick={onLoad}
-          className="cp-btn text-[10px] w-full"
+          className="cp-btn text-[0.625rem] w-full"
         >
           Load this framing
         </button>
@@ -142,7 +142,7 @@ export function ThreeFramingsPanel({ onLoadFraming }: Props) {
       </button>
       {expanded && (
         <div className="cp-panel-body" id="three-framings-content">
-          <p className="text-[10px] text-cp-text-dim mb-3">
+          <p className="text-[0.625rem] text-cp-text-dim mb-3">
             Three reconstructions of the wager, each valid only under its stated assumptions.
             They are not a strength ranking; they form a conditional map of what follows from what.
           </p>

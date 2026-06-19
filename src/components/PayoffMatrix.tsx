@@ -11,13 +11,13 @@ interface Props {
 
 function InfinityBadge({ tag }: { tag: ExtendedReal["tag"] }) {
   if (tag === "pos_inf") {
-    return <span className="cp-tag text-[9px] cp-tag border-cp-green/30 bg-cp-green/10 text-cp-green" aria-label="positive infinity">+INF</span>;
+    return <span className="cp-tag text-[0.5625rem] cp-tag border-cp-green/30 bg-cp-green/10 text-cp-green" aria-label="positive infinity">+INF</span>;
   }
   if (tag === "neg_inf") {
-    return <span className="cp-tag text-[9px] border-cp-magenta/30 bg-cp-magenta/10 text-cp-magenta" aria-label="negative infinity">-INF</span>;
+    return <span className="cp-tag text-[0.5625rem] border-cp-magenta/30 bg-cp-magenta/10 text-cp-magenta" aria-label="negative infinity">-INF</span>;
   }
   if (tag === "indeterminate") {
-    return <span className="cp-tag text-[9px] border-cp-yellow/30 bg-cp-yellow/10 text-cp-yellow" aria-label="indeterminate">UNDEF</span>;
+    return <span className="cp-tag text-[0.5625rem] border-cp-yellow/30 bg-cp-yellow/10 text-cp-yellow" aria-label="indeterminate">UNDEF</span>;
   }
   return null;
 }
@@ -66,7 +66,7 @@ function CellEditor({
           if (e.key === "Enter") commitEdit();
           if (e.key === "Escape") setEditing(false);
         }}
-        className="cp-input text-[11px] w-20 text-center"
+        className="cp-input text-[0.6875rem] w-20 text-center"
         autoFocus
         aria-label="Edit payoff value"
       />
@@ -84,7 +84,7 @@ function CellEditor({
   return (
     <button
       onClick={startEdit}
-      className={`font-mono text-[11px] cursor-pointer hover:text-cp-cyan transition-colors ${
+      className={`font-mono text-[0.6875rem] cursor-pointer hover:text-cp-cyan transition-colors ${
         value.value >= 0 ? "text-cp-green" : "text-cp-magenta"
       }`}
       aria-label={`Edit payoff: ${value.value}`}
@@ -139,13 +139,13 @@ export function PayoffMatrix({ worldviews, matrix, onUpdateCell }: Props) {
       <table className="w-full text-xs border-collapse" role="grid" aria-label="Payoff matrix">
         <thead>
           <tr>
-            <th className="text-left p-2 text-cp-text-dim font-rajdhani uppercase tracking-wider text-[10px] border-b border-cp-cyan/10">
+            <th className="text-left p-2 text-cp-text-dim font-rajdhani uppercase tracking-wider text-[0.625rem] border-b border-cp-cyan/10">
               Action / State
             </th>
             {worldviews.map(wv => (
               <th
                 key={`h-${wv.id}`}
-                className="p-2 text-center text-cp-cyan font-rajdhani uppercase tracking-wider text-[10px] border-b border-cp-cyan/10"
+                className="p-2 text-center text-cp-cyan font-rajdhani uppercase tracking-wider text-[0.625rem] border-b border-cp-cyan/10"
               >
                 {wv.name}
                 <br />
@@ -157,7 +157,7 @@ export function PayoffMatrix({ worldviews, matrix, onUpdateCell }: Props) {
         <tbody>
           {worldviews.map((actionWv, a) => (
             <tr key={`r-${actionWv.id}`} className="hover:bg-cp-cyan/[0.02]">
-              <td className="p-2 font-rajdhani font-semibold text-[11px] border-b border-cp-cyan/5 whitespace-nowrap">
+              <td className="p-2 font-rajdhani font-semibold text-[0.6875rem] border-b border-cp-cyan/5 whitespace-nowrap">
                 Live as {actionWv.name}
               </td>
               {worldviews.map((stateWv, s) => (

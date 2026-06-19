@@ -186,7 +186,7 @@ export function WagerApp() {
             <div className="flex gap-1">
               <button
                 onClick={() => setSensTab("credence")}
-                className={`text-[10px] font-mono px-2 py-0.5 border transition-colors ${
+                className={`text-[0.625rem] font-mono px-2 py-0.5 border transition-colors ${
                   sensTab === "credence" ? "border-cp-cyan/40 text-cp-cyan bg-cp-cyan/10" : "border-cp-border text-cp-text-dim"
                 }`}
               >
@@ -194,7 +194,7 @@ export function WagerApp() {
               </button>
               <button
                 onClick={() => setSensTab("payoff")}
-                className={`text-[10px] font-mono px-2 py-0.5 border transition-colors ${
+                className={`text-[0.625rem] font-mono px-2 py-0.5 border transition-colors ${
                   sensTab === "payoff" ? "border-cp-cyan/40 text-cp-cyan bg-cp-cyan/10" : "border-cp-border text-cp-text-dim"
                 }`}
               >

@@ -30,20 +30,20 @@ export function EUBarsViz({ euRanking, worldviews }: Props) {
       {/* Extended value lane */}
       {extendedActions.length > 0 && (
         <div className="space-y-1 mb-3">
-          <div className="text-[9px] font-mono text-cp-text-dim uppercase tracking-wider">Extended Values</div>
+          <div className="text-[0.5625rem] font-mono text-cp-text-dim uppercase tracking-wider">Extended Values</div>
           {extendedActions.map(ea => (
             <div key={ea.idx} className="flex items-center gap-2">
-              <span className="text-[11px] font-rajdhani font-semibold w-32 truncate">
+              <span className="text-[0.6875rem] font-rajdhani font-semibold w-32 truncate">
                 {worldviews[ea.idx]?.name}
               </span>
               {ea.tag === "pos_inf" && (
-                <span className="cp-tag text-[9px] border-cp-green/30 bg-cp-green/10 text-cp-green">EU = +INF</span>
+                <span className="cp-tag text-[0.5625rem] border-cp-green/30 bg-cp-green/10 text-cp-green">EU = +INF</span>
               )}
               {ea.tag === "neg_inf" && (
-                <span className="cp-tag text-[9px] border-cp-magenta/30 bg-cp-magenta/10 text-cp-magenta">EU = -INF</span>
+                <span className="cp-tag text-[0.5625rem] border-cp-magenta/30 bg-cp-magenta/10 text-cp-magenta">EU = -INF</span>
               )}
               {ea.tag === "indeterminate" && (
-                <span className="cp-tag text-[9px] border-cp-yellow/30 bg-cp-yellow/10 text-cp-yellow">EU = UNDEF</span>
+                <span className="cp-tag text-[0.5625rem] border-cp-yellow/30 bg-cp-yellow/10 text-cp-yellow">EU = UNDEF</span>
               )}
             </div>
           ))}
@@ -63,7 +63,7 @@ export function EUBarsViz({ euRanking, worldviews }: Props) {
 
               return (
                 <div key={fa.idx} className="flex items-center gap-2">
-                  <span className="text-[11px] font-rajdhani font-semibold w-32 truncate">
+                  <span className="text-[0.6875rem] font-rajdhani font-semibold w-32 truncate">
                     {worldviews[fa.idx]?.name}
                   </span>
                   <div className="flex-1 h-5 relative">
@@ -82,7 +82,7 @@ export function EUBarsViz({ euRanking, worldviews }: Props) {
                       }
                     />
                   </div>
-                  <span className={`font-mono text-[11px] w-20 text-right ${
+                  <span className={`font-mono text-[0.6875rem] w-20 text-right ${
                     isPositive ? (isBest ? "text-cp-green glow-green" : "text-cp-cyan") : "text-cp-magenta"
                   }`}>
                     {erToString(euRanking.eus[fa.idx])}

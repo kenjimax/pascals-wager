@@ -10,7 +10,7 @@ export function ResultCard({ result }: Props) {
 
   return (
     <div className="hud-border bg-surface-1 p-4">
-      <div className="text-[10px] font-mono text-cp-text-dim uppercase tracking-wider mb-1">
+      <div className="text-[0.625rem] font-mono text-cp-text-dim uppercase tracking-wider mb-1">
         Model Result
       </div>
       <div className="text-lg font-rajdhani font-bold glow-cyan">
@@ -31,7 +31,7 @@ export function ResultCard({ result }: Props) {
       {headline.disagreement && (
         <div className="mt-2 flex items-center gap-2">
           <div className="cp-dot bg-cp-yellow shadow-[0_0_6px_rgba(252,238,9,0.5)]" />
-          <span className="text-[10px] font-mono text-cp-yellow">
+          <span className="text-[0.625rem] font-mono text-cp-yellow">
             Decision rules disagree. See the rule-by-rule breakdown below.
           </span>
         </div>
