@@ -13,9 +13,10 @@ interface Props {
 }
 
 function RuleCard({
-  name, question, whenNote, pick, why, color, dotColor,
+  name, termKey, question, whenNote, pick, why, color, dotColor,
 }: {
   name: string;
+  termKey?: string;
   question: string;
   whenNote: string;
   pick: string;
@@ -26,7 +27,7 @@ function RuleCard({
   return (
     <div className="cp-panel">
       <div className="cp-panel-header text-[11px]">
-        <span>{name}</span>
+        <span>{termKey ? <Term termKey={termKey}>{name}</Term> : name}</span>
         <div className={`cp-dot ${dotColor}`} />
       </div>
       <div className="cp-panel-body">
@@ -127,6 +128,7 @@ export function DecisionRulesPanel({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <RuleCard
           name="Expected Utility"
+          termKey="expected_utility"
           question="Which choice has the best probability-weighted average outcome?"
           whenNote="Use when you commit to probabilities and accept expected-utility maximization as the decision criterion."
           pick={euPick}
@@ -136,6 +138,7 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Statewise Dominance"
+          termKey="statewise_dominance"
           question="Is there a choice at least as good in every possible state and strictly better in at least one?"
           whenNote="Use when one option is never worse. Requires no probabilities or utility comparisons."
           pick={domPick}
@@ -145,6 +148,7 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Maximin"
+          termKey="maximin"
           question={`Which choice has the least-bad worst case (${possibilityFiltered ? "over states you consider possible" : "over all listed states"})?`}
           whenNote="Encodes a cautious attitude: prioritize avoiding the worst outcome. Does not require probabilities but does encode a distinct value judgment about caution."
           pick={maximinPick}
@@ -154,6 +158,7 @@ export function DecisionRulesPanel({
         />
         <RuleCard
           name="Minimax Regret"
+          termKey="minimax_regret"
           question="Which choice minimizes your largest possible regret?"
           whenNote="Encodes a distinct attitude toward regret: minimize how much you could wish you had chosen differently. Does not require probabilities."
           pick={regretPick}

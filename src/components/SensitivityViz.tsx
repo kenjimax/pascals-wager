@@ -2,6 +2,7 @@
 import { useMemo } from "react";
 import type { Worldview, PayoffCell } from "@/lib/wager";
 import { computeCredenceSensitivity, computePayoffSensitivity, type SensitivityResult } from "@/lib/wager";
+import { Term } from "./Term";
 
 interface Props {
   worldviews: Worldview[];
@@ -57,7 +58,12 @@ function SensBar({ result, worldviews }: { result: SensitivityResult; worldviews
         />
       </div>
 
-      <div className="flex flex-wrap gap-2 text-[9px]">
+      <div className="flex flex-wrap items-center gap-2 text-[9px]">
+        {result.breakpoints.length > 0 && (
+          <span className="font-mono text-cp-text-dim/80">
+            <Term termKey="break_even_interval">break-even</Term>:
+          </span>
+        )}
         {result.breakpoints.map((bp, i) => (
           <span key={i} className="font-mono text-cp-text-dim">
             switch at {(bp * 100).toFixed(1)}%
