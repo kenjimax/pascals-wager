@@ -1,6 +1,6 @@
 "use client";
 import { PRESETS } from "@/lib/presets";
-import type { UtilityMode } from "@/lib/wager";
+import type { UtilityMode, ScenarioState } from "@/lib/wager";
 
 // What each utility mode does to the arithmetic, so switching modes explains
 // itself instead of silently changing the verdict. Each line states the rule
@@ -35,17 +35,29 @@ const MODE_NOTES: Record<UtilityMode, { label: string; note: string }> = {
 interface Props {
   activePresetId: string | null;
   utilityMode: UtilityMode;
+  state: ScenarioState;
 }
 
-export function ScenarioContextBar({ activePresetId, utilityMode }: Props) {
+// The scenario (worldviews and payoffs) the bar describes, ignoring the rule
+// set and tie-break toggles, which are reported separately. Used to tell
+// whether the current state still matches the preset it was loaded from.
+function scenarioShape(s: { worldviews: ScenarioState["worldviews"]; payoffMatrix: ScenarioState["payoffMatrix"] }): string {
+  return JSON.stringify({ worldviews: s.worldviews, payoffMatrix: s.payoffMatrix });
+}
+
+export function ScenarioContextBar({ activePresetId, utilityMode, state }: Props) {
   const preset = activePresetId ? PRESETS.find(p => p.id === activePresetId) : null;
   const mode = MODE_NOTES[utilityMode];
+  const modified = preset ? scenarioShape(state) !== scenarioShape(preset.state) : false;
 
   return (
     <div className="mt-2 flex flex-col gap-1.5 text-[0.6875rem] font-mono leading-snug">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="text-cp-text-dim uppercase tracking-wider">Scenario</span>
-        <span className="text-cp-cyan font-semibold">{preset ? preset.name : "Custom scenario"}</span>
+        <span className="text-cp-cyan font-semibold">
+          {preset ? preset.name : "Custom scenario"}
+          {modified && <span className="text-cp-text-dim font-normal"> (modified)</span>}
+        </span>
         {preset && <span className="text-cp-text-dim">{preset.description}</span>}
         {!preset && (
           <span className="text-cp-text-dim">Built by hand or loaded from a shared link.</span>

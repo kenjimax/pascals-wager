@@ -17,13 +17,14 @@ interface Props {
 // cannot be dragged with the mouse there even though keyboard input does). On
 // pointer down we snapshot the track geometry and attach window-level move/up
 // listeners, then translate the pointer x into a value, so a press-and-drag
-// updates continuously and identically in Chromium, Firefox, and Safari.
+// updates continuously and identically in Chromium, Firefox, and Safari. The
+// listeners always remove themselves on pointer up or cancel, which a drag
+// always ends with, so they do not outlive the gesture. The native <input> is
+// kept for keyboard accessibility and the focus ring.
 //
 // The geometry is captured once at pointer down rather than read on every move:
 // the element can briefly detach during the controlled re-render cascade (the
-// ref reads null mid-drag), and the track does not move while being dragged, so
-// a fixed snapshot is both correct and robust. The native <input> is kept for
-// keyboard accessibility and the focus ring.
+// ref reads null mid-drag), and the track does not move while being dragged.
 export function RangeSlider({
   min,
   max,
@@ -48,10 +49,13 @@ export function RangeSlider({
     // value ourselves and focus manually so keyboard access is preserved.
     e.preventDefault();
     el.focus();
+
     const decimals = (String(step).split(".")[1] || "").length;
     const valueAt = (clientX: number) => {
       const frac = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-      const snapped = Math.round((min + frac * (max - min)) / step) * step;
+      // Snap relative to min so steps land on valid native values
+      // (min, min + step, ...), not on multiples of step from zero.
+      const snapped = min + Math.round((frac * (max - min)) / step) * step;
       const clamped = Math.min(max, Math.max(min, snapped));
       return decimals > 0 ? parseFloat(clamped.toFixed(decimals)) : clamped;
     };

@@ -291,7 +291,7 @@ export function WagerApp() {
             </div>
           </div>
 
-          <ScenarioContextBar activePresetId={activePresetId} utilityMode={state.utilityMode} />
+          <ScenarioContextBar activePresetId={activePresetId} utilityMode={state.utilityMode} state={state} />
 
           <div className="mt-2">
             <DisclaimerChip onClick={() => setLimitsOpen(true)} />

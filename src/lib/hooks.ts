@@ -11,6 +11,7 @@ import { saveToLocalStorage, loadFromLocalStorage, loadFromURL } from "./state";
 
 export interface UndoEntry {
   state: ScenarioState;
+  activePresetId: string | null;
   label: string;
 }
 
@@ -57,9 +58,9 @@ export function useWagerState() {
   }, [state]);
 
   const pushUndo = useCallback((label: string) => {
-    undoStack.current.push({ state: cloneState(state), label });
+    undoStack.current.push({ state: cloneState(state), activePresetId, label });
     if (undoStack.current.length > 50) undoStack.current.shift();
-  }, [state]);
+  }, [state, activePresetId]);
 
   const setState = useCallback((next: ScenarioState, undoLabel?: string) => {
     if (undoLabel) pushUndo(undoLabel);
@@ -68,7 +69,10 @@ export function useWagerState() {
 
   const undo = useCallback(() => {
     const entry = undoStack.current.pop();
-    if (entry) setStateRaw(entry.state);
+    if (entry) {
+      setStateRaw(entry.state);
+      setActivePresetId(entry.activePresetId);
+    }
   }, []);
 
   const canUndo = undoStack.current.length > 0;
