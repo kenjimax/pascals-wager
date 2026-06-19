@@ -76,11 +76,29 @@ function Rail({
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
+  // The rails are fixed to the viewport edges while the content is a centered
+  // max-w-7xl column. With this project's 125% root font size, 80rem renders at
+  // 1600px, which is the content box width (verified at runtime). The empty
+  // gutter beside the content is therefore (100vw - 1600px) / 2 per side. The
+  // old fixed widths (200px/280px), shown from the xl breakpoint, were wider
+  // than that gutter at every realistic viewport, so the rails sat on top of
+  // the content edges (the "weird" behavior). We instead make each rail exactly
+  // as wide as its gutter, so the rail's inner edge meets the content box and
+  // never overlaps it, capped at 280px so it does not sprawl on ultrawide
+  // displays. Below ~130px of gutter (viewport < 1860px) there is too little
+  // room to show the imagery legibly, so the rail is hidden.
+  //
+  // Both numbers are intentionally in px, not rem: a `rem` inside a @media
+  // query resolves against the browser default (16px), not the document's
+  // root, so a rem breakpoint would disagree with the rem in the width calc
+  // (which uses the 20px root). px keeps the breakpoint and the calc keyed to
+  // the same rendered 1600px. If max-w-7xl or the 125% root font size changes,
+  // update both 1600 and 1860 here.
   return (
     <div
-      className={`fixed top-0 bottom-0 ${side === "left" ? "left-0" : "right-0"} w-[200px] 2xl:w-[280px] z-10 hidden xl:flex flex-col`}
+      className={`fixed top-0 bottom-0 ${side === "left" ? "left-0" : "right-0"} z-10 hidden min-[1860px]:flex flex-col`}
       aria-hidden="true"
-      style={{ pointerEvents: "none", opacity }}
+      style={{ pointerEvents: "none", opacity, width: "min(280px, calc((100vw - 1600px) / 2))" }}
     >
       <div className="flex-1 relative overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}

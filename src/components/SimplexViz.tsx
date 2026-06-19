@@ -2,14 +2,13 @@
 import { useRef, useEffect, useState } from "react";
 import type { Worldview, PayoffCell } from "@/lib/wager";
 import { computeEU, erCompare } from "@/lib/wager";
+import { WORLDVIEW_COLORS as COLORS } from "@/lib/colors";
 
 interface Props {
   worldviews: Worldview[];
   probs: number[];
   matrix: PayoffCell[][];
 }
-
-const COLORS = ["#00f0ff", "#ff003c", "#fcee09", "#39ff14", "#ff6b35", "#7b68ee"];
 
 export function SimplexViz({ worldviews, probs, matrix }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);

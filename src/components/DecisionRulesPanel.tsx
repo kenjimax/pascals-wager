@@ -1,7 +1,13 @@
 "use client";
 import type { DecisionResult, Worldview } from "@/lib/wager";
 import { erToString } from "@/lib/wager";
+import { worldviewColor } from "@/lib/colors";
 import { Term } from "./Term";
+
+interface Pick {
+  name: string;
+  color: string;
+}
 
 interface Props {
   result: DecisionResult;
@@ -12,28 +18,44 @@ interface Props {
   onTogglePossibilityFiltered: (on: boolean) => void;
 }
 
+// The verdict is shown by coloring each chosen worldview with its own color
+// from the shared palette (the same colors the probability simplex uses), so a
+// color always identifies a worldview, never the rule. A prefix (for example
+// "Undominated:") and a fallback label (for "no defined optimum") are dim, since
+// they are not a worldview.
 function RuleCard({
-  name, termKey, question, whenNote, pick, why, color, dotColor, tied,
+  name, termKey, question, whenNote, picks, pickPrefix, pickFallback, why, tied,
 }: {
   name: string;
   termKey?: string;
   question: string;
   whenNote: string;
-  pick: string;
+  picks: Pick[];
+  pickPrefix?: string;
+  pickFallback?: string;
   why: string;
-  color: string;
-  dotColor: string;
   tied?: boolean;
 }) {
   return (
     <div className="cp-panel">
       <div className="cp-panel-header text-[0.6875rem]">
         <span>{termKey ? <Term termKey={termKey}>{name}</Term> : name}</span>
-        <div className={`cp-dot ${dotColor}`} />
       </div>
       <div className="cp-panel-body">
         <div className="text-[0.625rem] text-cp-text-dim italic mb-2">{question}</div>
-        <div className={`font-rajdhani font-bold text-sm ${color}`}>{pick}</div>
+        <div className="font-rajdhani font-bold text-sm">
+          {pickPrefix && <span className="text-cp-text-dim font-normal mr-1">{pickPrefix}</span>}
+          {picks.length > 0 ? (
+            picks.map((p, i) => (
+              <span key={i}>
+                <span style={{ color: p.color }}>{p.name}</span>
+                {i < picks.length - 1 && <span className="text-cp-text-dim">, </span>}
+              </span>
+            ))
+          ) : (
+            <span className="text-cp-text-dim">{pickFallback}</span>
+          )}
+        </div>
         {tied && (
           <div className="text-[0.5625rem] text-cp-text-dim mt-1 font-mono">
             These actions are tied under this rule; it does not discriminate between them, and you would pick exactly one.
@@ -54,72 +76,79 @@ export function DecisionRulesPanel({
   possibilityFiltered, onTogglePossibilityFiltered,
 }: Props) {
   const getName = (idx: number) => worldviews[idx]?.name ?? "?";
-  const getNames = (indices: number[]) => {
-    if (indices.length === 0) return "None";
-    if (indices.length === 1) return getName(indices[0]);
-    return indices.map(getName).join(", ");
-  };
+  const picksOf = (indices: number[]): Pick[] =>
+    indices.map(i => ({ name: getName(i), color: worldviewColor(i) }));
 
   // EU
-  let euPick: string;
+  let euPicks: Pick[];
+  let euFallback: string | undefined;
   let euWhy: string;
   if (result.euRanking.bestIndices.length === 0) {
-    euPick = "No defined optimum";
+    euPicks = [];
+    euFallback = "No defined optimum";
     euWhy = "All actions have indeterminate expected utility.";
   } else if (result.euRanking.tiedAtInfinity) {
     if (result.lexResult && result.lexResult.topTieSet.length === 1) {
-      euPick = getName(result.lexResult.rankedIndices[0]);
+      euPicks = picksOf([result.lexResult.rankedIndices[0]]);
       euWhy = `Infinite EU tie broken lexicographically. Probability mass on infinite-reward states: ${(result.lexResult.infMasses[0] * 100).toFixed(1)}%.`;
     } else if (result.lexResult) {
-      euPick = `Tied: ${getNames(result.lexResult.topTieSet)}`;
+      euPicks = picksOf(result.lexResult.topTieSet);
       euWhy = "Even the lexicographic tiebreak cannot separate these: equal infinite-reward mass and finite remainder.";
     } else {
-      euPick = `Tied: ${getNames(result.euRanking.bestIndices)}`;
+      euPicks = picksOf(result.euRanking.bestIndices);
       euWhy = "Multiple actions have infinite expected utility. They are genuinely tied; enable lexicographic tiebreak for a finer distinction.";
     }
   } else if (result.euRanking.bestIndices.length > 1) {
-    euPick = `Tied: ${getNames(result.euRanking.bestIndices)}`;
+    euPicks = picksOf(result.euRanking.bestIndices);
     euWhy = `These actions are tied at EU = ${erToString(result.euRanking.eus[result.euRanking.bestIndices[0]])}.`;
   } else {
     const idx = result.euRanking.bestIndices[0];
-    euPick = getName(idx);
+    euPicks = picksOf([idx]);
     euWhy = `EU = ${erToString(result.euRanking.eus[idx])}`;
   }
 
   // Dominance
-  let domPick: string;
+  let domPicks: Pick[];
+  let domPrefix: string | undefined;
+  let domFallback: string | undefined;
   let domWhy: string;
   if (result.dominance.dominantIndex !== null) {
-    domPick = getName(result.dominance.dominantIndex);
+    domPicks = picksOf([result.dominance.dominantIndex]);
     domWhy = "This action weakly dominates all others: at least as good in every possible state and strictly better in at least one.";
   } else if (result.dominance.undominatedIndices.length === worldviews.length) {
-    domPick = "No dominant action";
+    domPicks = [];
+    domFallback = "No dominant action";
     domWhy = "No action is weakly dominated. Each has at least one state where it outperforms.";
   } else {
-    domPick = `Undominated: ${getNames(result.dominance.undominatedIndices)}`;
+    domPicks = picksOf(result.dominance.undominatedIndices);
+    domPrefix = "Undominated:";
     domWhy = `${worldviews.length - result.dominance.undominatedIndices.length} action(s) dominated and removed.`;
   }
 
   // Maximin
-  let maximinPick: string;
+  let maximinPicks: Pick[];
+  let maximinFallback: string | undefined;
   let maximinWhy: string;
   if (result.maximin.bestIndices.length === 0) {
-    maximinPick = "Undefined";
+    maximinPicks = [];
+    maximinFallback = "Undefined";
     maximinWhy = "Cannot determine worst case (indeterminate payoffs).";
   } else {
-    maximinPick = getNames(result.maximin.bestIndices);
+    maximinPicks = picksOf(result.maximin.bestIndices);
     const worstVal = result.maximin.worstPayoffs[result.maximin.bestIndices[0]];
     maximinWhy = `Best worst-case payoff: ${worstVal ? erToString(worstVal) : "undefined"}.`;
   }
 
   // Minimax regret
-  let regretPick: string;
+  let regretPicks: Pick[];
+  let regretFallback: string | undefined;
   let regretWhy: string;
   if (result.minimaxRegret.bestIndices.length === 0) {
-    regretPick = "Undefined";
+    regretPicks = [];
+    regretFallback = "Undefined";
     regretWhy = "Cannot compute regret (indeterminate or infinite regret for all actions).";
   } else {
-    regretPick = getNames(result.minimaxRegret.bestIndices);
+    regretPicks = picksOf(result.minimaxRegret.bestIndices);
     const maxR = result.minimaxRegret.maxRegrets[result.minimaxRegret.bestIndices[0]];
     regretWhy = `Lowest maximum regret: ${maxR ? erToString(maxR) : "undefined"}.`;
   }
@@ -149,10 +178,9 @@ export function DecisionRulesPanel({
           termKey="expected_utility"
           question="Which choice has the best probability-weighted average outcome?"
           whenNote="Use when you commit to probabilities and accept expected-utility maximization as the decision criterion."
-          pick={euPick}
+          picks={euPicks}
+          pickFallback={euFallback}
           why={euWhy}
-          color="text-cp-cyan"
-          dotColor="bg-cp-cyan shadow-[0_0_6px_rgba(0,240,255,0.5)]"
           tied={euTied}
         />
         <RuleCard
@@ -160,20 +188,19 @@ export function DecisionRulesPanel({
           termKey="statewise_dominance"
           question="Is there a choice at least as good in every possible state and strictly better in at least one?"
           whenNote="Use when one option is never worse. Requires no probabilities or utility comparisons."
-          pick={domPick}
+          picks={domPicks}
+          pickPrefix={domPrefix}
+          pickFallback={domFallback}
           why={domWhy}
-          color="text-cp-green"
-          dotColor="bg-cp-green shadow-[0_0_6px_rgba(57,255,20,0.5)]"
         />
         <RuleCard
           name="Maximin"
           termKey="maximin"
           question={`Which choice has the least-bad worst case (${possibilityFiltered ? "over states you consider possible" : "over all listed states"})?`}
           whenNote="Encodes a cautious attitude: prioritize avoiding the worst outcome. Does not require probabilities but does encode a distinct value judgment about caution."
-          pick={maximinPick}
+          picks={maximinPicks}
+          pickFallback={maximinFallback}
           why={maximinWhy}
-          color="text-cp-yellow"
-          dotColor="bg-cp-yellow shadow-[0_0_6px_rgba(252,238,9,0.5)]"
           tied={maximinTied}
         />
         <RuleCard
@@ -181,10 +208,9 @@ export function DecisionRulesPanel({
           termKey="minimax_regret"
           question="Which choice minimizes your largest possible regret?"
           whenNote="Encodes a distinct attitude toward regret: minimize how much you could wish you had chosen differently. Does not require probabilities."
-          pick={regretPick}
+          picks={regretPicks}
+          pickFallback={regretFallback}
           why={regretWhy}
-          color="text-cp-magenta"
-          dotColor="bg-cp-magenta shadow-[0_0_6px_rgba(255,0,60,0.5)]"
           tied={regretTied}
         />
       </div>
